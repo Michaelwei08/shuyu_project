@@ -1,0 +1,57 @@
+field_categories:
+  - category: Framing
+    description: What biological or analytical problem the item addresses.
+    fields:
+      - name: name
+        description: Item name.
+        detail_level: brief
+      - name: category
+        description: Item category.
+        detail_level: brief
+      - name: purpose
+        description: Main reason to include the item in this project.
+        detail_level: moderate
+      - name: relevant_assays
+        description: Assay types where the item is applicable, such as cfWGS, VirCapSeq, tissue WGS, RNA-seq, or cfRNA.
+        detail_level: moderate
+  - category: Technical Evaluation
+    description: Core technical characteristics that determine whether an item fits the project.
+    fields:
+      - name: input_requirements
+        description: Required data types and preconditions.
+        detail_level: moderate
+      - name: output_resolution
+        description: Whether the item operates at sequence, family, locus, insertion, or activity level.
+        detail_level: moderate
+      - name: strengths
+        description: Main technical advantages.
+        detail_level: detailed
+      - name: limitations
+        description: Main technical limitations.
+        detail_level: detailed
+      - name: cfDNA_fit
+        description: Expected fit for fragmented low-input cfDNA.
+        detail_level: detailed
+      - name: vircapseq_fit
+        description: Expected fit for on-target or off-target VirCapSeq data.
+        detail_level: detailed
+      - name: distinction_value
+        description: How much the item helps distinguish exogenous retroviruses from endogenous retroelements.
+        detail_level: detailed
+  - category: Recommendation
+    description: Role in the proposed project design.
+    fields:
+      - name: recommended_role
+        description: Suggested role such as primary caller, secondary caller, annotation source, exploratory analysis, or not recommended.
+        detail_level: moderate
+      - name: validation_needs
+        description: What follow-up validation should accompany use of the item.
+        detail_level: moderate
+      - name: key_sources
+        description: Primary papers, official repositories, or documentation links.
+        detail_level: detailed
+      - name: notes
+        description: Project-specific implementation notes.
+        detail_level: detailed
+uncertain:
+  description: Reserved list for uncertain field names in a deep-research phase

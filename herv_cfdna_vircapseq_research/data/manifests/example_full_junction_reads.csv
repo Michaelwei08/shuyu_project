@@ -1,0 +1,5 @@
+sample_id,read_id,virus,host_chrom,host_position,junction_type
+example_hiv_targeted_001,hiv_j001,HIV,chr1,100000,split_read
+example_hiv_targeted_001,hiv_j002,HIV,chr2,200000,discordant_pair
+example_hiv_wgs_001,hiv_w_j001,HIV,chr5,500000,split_read
+example_htlv_targeted_001,htlv_j001,HTLV,chr3,300000,split_read

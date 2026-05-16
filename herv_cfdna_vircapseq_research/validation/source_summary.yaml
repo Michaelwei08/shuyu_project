@@ -1,0 +1,22 @@
+generated_at_unix: 1776244971
+total_sources: 53
+ok_sources: 49
+sources_with_warnings: 16
+domains:
+- academic.oup.com
+- dfam.org
+- doi.org
+- genome.cshlp.org
+- genomebiology.biomedcentral.com
+- github.com
+- journals.plos.org
+- link.springer.com
+- melt.igs.umaryland.edu
+- mtokuyama.github.io
+- pmc.ncbi.nlm.nih.gov
+- pubmed.ncbi.nlm.nih.gov
+- repeatmasker.org
+- www.ervmap.com
+- www.frontiersin.org
+- www.nature.com
+- www.sciencedirect.com

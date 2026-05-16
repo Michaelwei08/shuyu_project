@@ -1,0 +1,6 @@
+sample_id,usable_read_pairs
+example_healthy_targeted_001,1000000
+example_hiv_targeted_001,2000000
+example_hiv_wgs_001,30000000
+example_htlv_targeted_001,1500000
+example_hl_wgs_001,32000000

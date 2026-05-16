@@ -1,0 +1,2 @@
+sample_id,dataset,cohort,disease_label,sample_source,has_viral_detection,has_genotype,has_imputed_genotype,has_ancestry_pcs,sequencing_depth,batch,tumor_purity,transplant_status,immunosuppression_status,treatment_status,outcome_available,analysis_status,notes
+example_sample,local_60_wgs,hiv_cohort,control,blood,false,false,false,false,NA,NA,NA,NA,NA,NA,false,blocked,replace example row before analysis

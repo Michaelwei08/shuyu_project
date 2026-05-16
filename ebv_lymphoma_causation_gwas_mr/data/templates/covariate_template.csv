@@ -1,0 +1,2 @@
+sample_id,age,sex,ancestry_pc1,ancestry_pc2,ancestry_pc3,ancestry_pc4,ancestry_pc5,cohort,batch,sample_type,sequencing_depth,tumor_purity,transplant_status,immunosuppression_status,treatment_status,notes
+example_sample,NA,NA,NA,NA,NA,NA,NA,example_cohort,example_batch,tumor,NA,NA,NA,NA,NA,replace example row before analysis

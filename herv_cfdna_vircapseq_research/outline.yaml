@@ -1,0 +1,30 @@
+topic: Distinguishing exogenous retroviruses from HERVs and LINE1 in cfDNA, WGS, and VirCapSeq data
+items:
+  - name: Exogenous retrovirus discrimination strategy
+    category: Analysis question
+    description: Determine how sequences from known exogenous retroviral infections can be computationally separated from human endogenous retroviruses and LINE1-derived reads in existing cfDNA or capture-based sequencing datasets, using comparative bioinformatics only.
+  - name: HERV DNA insertion callers
+    category: Tool class
+    description: Evaluate ERVcaller, RetroSnake or RetroSeq+, xTea, and STEAK for non-reference HERV detection from short-read DNA sequencing.
+  - name: LINE1 and broader TE callers
+    category: Tool class
+    description: Evaluate xTea and MELT for LINE1 and other TE insertion discovery in a combined HERV plus LINE1 analysis.
+  - name: HERV locus and annotation resources
+    category: Reference resource
+    description: Assess RepeatMasker or Dfam annotations, HERV-K catalogs, ERVmap loci, and Telescope annotations as coordinate systems for cfDNA analyses.
+  - name: cfDNA adaptation paths
+    category: Method question
+    description: Assess which parts of existing HERV or TE pipelines can be adapted to cfDNA using family-level counting, methylation, fragmentomics, or locus whitelists.
+  - name: VirCapSeq off-target reuse
+    category: Method question
+    description: Assess whether off-target host reads from virus-capture data are useful for HERV or LINE1 analysis and what level of resolution is realistic.
+  - name: Validation strategy
+    category: Experimental design
+    description: Define non-procedural analytical controls and orthogonal confirmation standards for candidate exogenous retrovirus, HERV, and LINE1 findings in sequencing-based studies.
+execution:
+  batch_size: 3
+  items_per_agent: 1
+  output_dir: ./results
+assumptions:
+  time_range: Unlimited, with emphasis on foundational papers and tools still relevant through 2026-04-15
+  note: Generated non-interactively because request_user_input is unavailable in this session

@@ -1,0 +1,6 @@
+sample_id,subject_id,cohort,disease_group,assay_type,expected_group,hiv_status,htlv_status,herv_analysis_scope,file_format,file_path,read1_path,read2_path,bam_or_cram_path,reference_build,estimated_depth,library_prep,batch,notes
+example_healthy_targeted_001,subject_healthy_001,healthy_control,healthy,targeted,healthy_negative,negative,negative,family_level,FASTQ,,/example/healthy_R1.fastq.gz,/example/healthy_R2.fastq.gz,,hg38,,targeted_capture,batch_001,synthetic dry-run row
+example_hiv_targeted_001,subject_hiv_001,hiv_cohort,hiv,targeted,hiv_positive,positive,negative,family_level,FASTQ,,/example/hiv_R1.fastq.gz,/example/hiv_R2.fastq.gz,,hg38,,targeted_capture,batch_001,synthetic dry-run row
+example_hiv_wgs_001,subject_hiv_001,hiv_cohort,hiv,WGS,hiv_positive,positive,negative,family_plus_selective_locus,CRAM,,,,/example/hiv.cram,hg38,30x,WGS,batch_003,synthetic targeted/WGS overlap row
+example_htlv_targeted_001,subject_htlv_001,takeshi_htlv,unknown,targeted,htlv_positive,negative,positive,family_level,FASTQ,,/example/htlv_R1.fastq.gz,/example/htlv_R2.fastq.gz,,hg38,,targeted_capture,batch_002,synthetic dry-run row
+example_hl_wgs_001,subject_hl_001,local_60_wgs,hl,WGS,disease_control,negative,negative,family_plus_selective_locus,CRAM,,,,/example/hl.cram,hg38,30x,WGS,batch_003,synthetic dry-run row

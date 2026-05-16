@@ -1,0 +1,2 @@
+sample_id,ebv_load,anellovirus_load,other_herpesvirus_load,pan_viral_burden,v1_pan_viral,v3_high_ebv_low_anello,phenotype_version,depth_pass,qc_status,notes
+example_sample,0,0,0,0,false,false,v0,false,template,replace example row before analysis

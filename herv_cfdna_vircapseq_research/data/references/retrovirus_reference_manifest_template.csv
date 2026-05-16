@@ -1,0 +1,7 @@
+reference_id,category,name,version_or_accession,source_url,local_path,include_in_combined_reference,role,notes
+human_hg38,human,GRCh38/hg38,GCF_000001405.40 or cohort-matched build,https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001405.40/,/path/to/hg38.fa,yes,host_reference,confirm exact build used by incoming BAM/CRAM
+hiv_hxb2,exogenous_retrovirus,HIV-1 HXB2 reference,NC_001802.1,https://www.ncbi.nlm.nih.gov/nuccore/NC_001802.1,/path/to/hiv_hxb2.fa,yes,exogenous_detection,initial HIV reference; add subtype references if cohort subtype is known
+htlv1_atk,exogenous_retrovirus,HTLV-1 reference,NC_001436.1,https://www.ncbi.nlm.nih.gov/nuccore/NC_001436.1,/path/to/htlv1.fa,yes,exogenous_detection,initial HTLV-1 reference
+htlv2_mo,exogenous_retrovirus,HTLV-2 reference,NC_001488.1,https://www.ncbi.nlm.nih.gov/nuccore/NC_001488.1,/path/to/htlv2.fa,yes,exogenous_detection,include to avoid HTLV-1/HTLV-2 ambiguity
+herv_decoys,endogenous_retroelement,HERV decoys or consensus sequences,Dfam or RepeatMasker release matched to hg38,https://www.dfam.org/,/path/to/herv_decoys.fa,yes,ambiguity_control,prevents conserved retroviral reads from forced HIV/HTLV calls
+line1_decoys,endogenous_retroelement,LINE1/L1HS decoys,Dfam or RepeatMasker release matched to hg38,https://www.dfam.org/,/path/to/line1_decoys.fa,yes,ambiguity_control,tracks non-LTR retroelement background

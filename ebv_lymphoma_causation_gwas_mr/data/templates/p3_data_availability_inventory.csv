@@ -1,0 +1,4 @@
+dataset,sample_scope,n_expected,n_listed,has_sample_manifest,has_viral_detection,has_genotype,has_imputed_genotype,has_ancestry_pcs,has_depth,has_batch,has_tumor_purity,has_transplant_status,has_immunosuppression_status,has_treatment,has_outcome,analysis_status,notes
+local_60_wgs,local HIV and HL WGS,60,0,false,false,false,false,false,false,false,false,false,false,false,false,not_feasible_until_data_arrives,No real 60-sample manifest found in workspace search on 2026-05-03
+public_wgs,HL DLBCL PTLD public WGS,TBD,0,false,false,false,false,false,false,false,false,false,false,false,false,not_feasible_until_data_arrives,Public WGS cohort inventory exists but no staged sample-level WGS calls/genotypes are present
+example_scaffold,synthetic example rows,12,12,true,true,false,false,false,true,true,false,true,true,false,true,association_only,Example association table exists for script validation only

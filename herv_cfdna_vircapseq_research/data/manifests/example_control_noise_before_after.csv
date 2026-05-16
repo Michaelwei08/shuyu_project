@@ -1,0 +1,7 @@
+stage,metric,reads_per_million
+before_filtering,unique_hiv_per_million,4.2
+after_filtering,unique_hiv_per_million,0.1
+before_filtering,unique_htlv_per_million,2.7
+after_filtering,unique_htlv_per_million,0.0
+before_filtering,ambiguous_retroviral_per_million,12.5
+after_filtering,ambiguous_retroviral_per_million,1.3

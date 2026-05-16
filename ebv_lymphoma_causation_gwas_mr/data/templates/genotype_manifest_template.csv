@@ -1,0 +1,2 @@
+dataset,genotype_path,index_path,format,genome_build,has_sample_qc,has_variant_qc,has_ancestry_pcs,notes
+example_dataset,/path/to/genotypes.bgen,/path/to/genotypes.bgen.bgi,BGEN,hg38,false,false,false,replace example row before analysis

@@ -1,0 +1,5 @@
+sample_id,disease_label,ebv_load,anellovirus_load,v1_pan_viral,v3_high_ebv_low_anello
+sample_001,HL,10,0,false,true
+sample_002,HL,8,1,false,true
+sample_003,control,0,2,false,false
+sample_004,control,1,3,true,false
