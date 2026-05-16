@@ -1,0 +1,8 @@
+sample_id,read_id,reference_category,mapq,alignment_score,alignment_length
+example_hiv_targeted_001,read001,hiv,60,100,100
+example_hiv_targeted_001,read002,hiv,45,90,95
+example_hiv_targeted_001,read002,herv,45,88,95
+example_hiv_targeted_001,read003,herv,50,98,100
+example_healthy_targeted_001,read004,human,60,100,100
+example_healthy_targeted_001,read005,hiv,30,80,80
+example_healthy_targeted_001,read005,herv,30,79,80

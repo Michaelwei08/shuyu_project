@@ -1,0 +1,5 @@
+sample_id,subject_id,cohort,disease_group,assay_type,expected_group,hiv_status,htlv_status,herv_analysis_scope,file_format,file_path,read1_path,read2_path,bam_or_cram_path,reference_build,estimated_depth,library_prep,batch,notes
+example_hiv_targeted_001,subject_001,hiv_cohort,hiv,targeted,hiv_positive,positive,negative,family_level,FASTQ,,/path/to/R1.fastq.gz,/path/to/R2.fastq.gz,,hg38,,targeted_capture,batch_001,replace example row before analysis
+example_healthy_targeted_001,subject_002,healthy_control,healthy,targeted,healthy_negative,negative,negative,family_level,FASTQ,,/path/to/R1.fastq.gz,/path/to/R2.fastq.gz,,hg38,,targeted_capture,batch_001,replace example row before analysis
+example_htlv_targeted_001,subject_003,takeshi_htlv,unknown,targeted,htlv_positive,negative,positive,family_level,FASTQ,,/path/to/R1.fastq.gz,/path/to/R2.fastq.gz,,hg38,,targeted_capture,batch_002,replace example row before analysis
+example_wgs_001,subject_004,local_60_wgs,hl,WGS,disease_control,unknown,unknown,family_plus_selective_locus,CRAM,,,,/path/to/sample.cram,hg38,30x,WGS,batch_003,replace example row before analysis

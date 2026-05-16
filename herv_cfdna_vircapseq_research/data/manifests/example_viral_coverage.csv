@@ -1,0 +1,8 @@
+sample_id,virus,position,depth
+example_hiv_targeted_001,HIV,1,3
+example_hiv_targeted_001,HIV,2,0
+example_hiv_targeted_001,HIV,3,5
+example_hiv_targeted_001,HTLV,1,0
+example_hiv_targeted_001,HTLV,2,0
+example_htlv_targeted_001,HTLV,1,4
+example_htlv_targeted_001,HTLV,2,2

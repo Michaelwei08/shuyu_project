@@ -1,0 +1,5 @@
+variant_id,beta_exposure,se_exposure,beta_outcome,se_outcome
+rs1,0.10,0.02,0.05,0.02
+rs2,0.20,0.04,0.08,0.03
+rs3,0.15,0.03,0.06,0.025
+rs4,0.12,0.03,0.03,0.02

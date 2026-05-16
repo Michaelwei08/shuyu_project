@@ -1,0 +1,3 @@
+sample_id,disease,cohort,sample_source,ebv_status_known,clinical_outcome,notes
+example_hl_001,HL,example_hl,tumor,positive,unknown,example row
+example_dlbcl_001,DLBCL,example_dlbcl,tumor,unknown,unknown,example row

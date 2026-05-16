@@ -1,0 +1,13 @@
+sample_id,disease_label,clinical_outcome,ebv_load,anellovirus_load,v1_pan_viral,v3_high_ebv_low_anello,sequencing_depth,batch,immunosuppression_status
+ctrl_001,control,non_adverse,0.1,1.8,false,false,30,batch_a,none
+ctrl_002,control,non_adverse,0.0,2.1,false,false,32,batch_a,none
+ctrl_003,control,non_adverse,0.2,1.5,false,false,28,batch_b,none
+hl_001,HL,adverse,8.5,0.8,false,true,35,batch_a,none
+hl_002,HL,non_adverse,6.7,1.0,false,true,31,batch_b,none
+hl_003,HL,adverse,4.2,5.0,true,false,33,batch_a,mild
+ptld_001,PTLD,adverse,9.1,3.2,false,true,29,batch_b,high
+ptld_002,PTLD,adverse,5.4,8.8,true,false,30,batch_a,high
+ptld_003,PTLD,non_adverse,3.0,7.5,true,false,27,batch_b,moderate
+dlbcl_001,DLBCL,adverse,7.2,1.1,false,true,36,batch_a,none
+dlbcl_002,DLBCL,non_adverse,2.4,4.9,true,false,34,batch_b,mild
+dlbcl_003,DLBCL,adverse,5.5,2.2,false,true,33,batch_a,none

@@ -1,0 +1,6 @@
+tool,tool_class,total_predictions,avg_sensitivity,avg_precision,long_read_confirmed_text,long_read_confirmed_percent,cpu_time_text,cpu_time_hours,citations,year_published
+Retroseq,Generalist,2286,0.6,0.77,"23%",23.0,03:43:01,3.717,185,2013
+Melt,Generalist,638,0.48,0.81,"13%",13.0,03:23:05,3.385,232,2017
+Retroseq+,HERV-specific,296,0.53,0.63,"78%",78.0,04:01:15,4.021,,
+Steak,HERV-specific,13770,0.13,0.9,"Non-ref: 41%; Ref + Non-ref: 77%",,04:48:35,4.810,18,2017
+ERVcaller,HERV-specific,439,0.77,0.9,"16%",16.0,14:17:22,14.289,13,2019

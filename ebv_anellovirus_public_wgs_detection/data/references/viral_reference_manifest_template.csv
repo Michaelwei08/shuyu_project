@@ -1,0 +1,11 @@
+reference_id,family,virus,name_or_strain,accession,source_url,local_path,include_primary_panel,notes
+ebv_type1_ref,Herpesviridae,EBV,Type 1 EBV reference,NC_007605.1,https://www.ncbi.nlm.nih.gov/nuccore/NC_007605.1,/path/to/ebv_type1.fa,yes,primary EBV reference for type 1 signal
+ebv_type2_ref,Herpesviridae,EBV,Type 2 EBV reference,NC_009334.1,https://www.ncbi.nlm.nih.gov/nuccore/NC_009334.1,/path/to/ebv_type2.fa,yes,include to reduce type-specific mapping bias
+hhv6a_ref,Herpesviridae,HHV-6A,U1102 reference,NC_001664.4,https://www.ncbi.nlm.nih.gov/nuccore/NC_001664.4,/path/to/hhv6a.fa,yes,screen and flag chromosomally integrated HHV-6 separately
+hhv6b_ref,Herpesviridae,HHV-6B,Z29 reference,NC_000898.1,https://www.ncbi.nlm.nih.gov/nuccore/NC_000898.1,/path/to/hhv6b.fa,yes,screen and flag chromosomally integrated HHV-6 separately
+hhv7_ref,Herpesviridae,HHV-7,JI reference,NC_001716.2,https://www.ncbi.nlm.nih.gov/nuccore/NC_001716.2,/path/to/hhv7.fa,yes,reported in Nature 2026 blood/saliva WGS virome analysis
+cmv_ref,Herpesviridae,CMV,Merlin reference,NC_006273.2,https://www.ncbi.nlm.nih.gov/nuccore/NC_006273.2,/path/to/cmv.fa,yes,relevant herpesvirus comparator
+kshv_ref,Herpesviridae,KSHV/HHV-8,GK18 reference,NC_009333.1,https://www.ncbi.nlm.nih.gov/nuccore/NC_009333.1,/path/to/kshv.fa,yes,relevant lymphoma-associated herpesvirus
+hsv1_ref,Herpesviridae,HSV-1,HSV-1 strain 17,NC_001806.2,https://www.ncbi.nlm.nih.gov/nuccore/NC_001806.2,/path/to/hsv1.fa,yes,relevant herpesvirus comparator
+anello_ttv1_ref,Anelloviridae,TTV,Torque teno virus 1,NC_002076.2,https://www.ncbi.nlm.nih.gov/nuccore/NC_002076.2,/path/to/ttv1.fa,yes,representative Alphatorquevirus reference
+anello_ttv_ref2,Anelloviridae,TTV,Torque teno virus,NC_015783.1,https://www.ncbi.nlm.nih.gov/nuccore/NC_015783.1,/path/to/ttv_ref2.fa,yes,second representative TTV reference for sensitivity

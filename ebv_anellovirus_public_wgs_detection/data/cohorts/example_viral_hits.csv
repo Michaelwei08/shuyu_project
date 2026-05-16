@@ -1,0 +1,7 @@
+sample_id,read_id,virus,family,mapq,alignment_length,is_duplicate
+example_hl_001,read001,EBV,Herpesviridae,60,100,false
+example_hl_001,read002,HHV-7,Herpesviridae,50,90,false
+example_hl_001,read003,TTV,Anelloviridae,55,80,false
+example_hl_001,read004,TTV,Anelloviridae,55,80,true
+example_dlbcl_001,read005,EBV,Herpesviridae,10,100,false
+example_dlbcl_001,read006,TTV,Anelloviridae,60,100,false

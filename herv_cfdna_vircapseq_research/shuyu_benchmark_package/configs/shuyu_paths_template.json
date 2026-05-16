@@ -1,0 +1,7 @@
+{
+  "wgs_dir": "/drive3/Shuyu_for_Michael/WGS_60samples_HIV_HL",
+  "htlv_targeted_dir": "/drive3/Shuyu_for_Michael/Targeted_HTLV_TCLsamples",
+  "output_dir": "herv_cfdna_vircapseq_research/shuyu_benchmark_package/output",
+  "reference_build": "unknown",
+  "notes": "Edit reference_build after checking whether files are FASTQ, BAM, or CRAM and whether BAM/CRAM alignment build is known."
+}

@@ -1,0 +1,3 @@
+variant_id,chrom,position,effect_allele,other_allele,beta_outcome,se_outcome,p_outcome,outcome_trait
+rs_example_nonmhc,1,1000000,C,T,0.06,0.05,0.230,ptld
+rs_extra_ptld,8,8000000,G,A,0.01,0.08,0.900,ptld

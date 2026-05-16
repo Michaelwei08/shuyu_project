@@ -1,0 +1,4 @@
+trait,source,accession_or_url,case_count,control_count,ancestry,genome_build,access_status,local_path,notes
+hodgkin_lymphoma,TBD,TBD,NA,NA,TBD,TBD,TBD,/path/to/hl_sumstats.tsv,replace with real source
+dlbcl,TBD,TBD,NA,NA,TBD,TBD,TBD,/path/to/dlbcl_sumstats.tsv,replace with real source
+ptld,TBD,TBD,NA,NA,TBD,TBD,TBD,/path/to/ptld_sumstats.tsv,PTLD GWAS may not exist or may be underpowered
