@@ -93,6 +93,37 @@ Proceed to full targeted HTLV first if:
 - HL controls remain negative.
 - HERV/LINE1 decoys do not absorb all HTLV signal.
 
+## 4. Full Targeted HTLV Run
+
+Only run complete targeted FASTQ pairs. This uses original FASTQs directly and does not copy/subsample reads:
+
+```bash
+cd /home/alizadehlab/cpwei/shuyu_project
+REFWORK=/home/alizadehlab/cpwei/shuyu_project/local_work/retro_competitive
+FULLHTLV=/home/alizadehlab/cpwei/shuyu_project/local_work/targeted_htlv_full_competitive
+
+python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_retro_pilot_alignment.py \
+  --manifest herv_cfdna_vircapseq_research/shuyu_benchmark_package/output/targeted_htlv_complete_manifest.csv \
+  --work-dir "$FULLHTLV" \
+  --reference-fasta "$REFWORK/ref/retro_competitive.fa" \
+  --reference-map "$REFWORK/ref/retro_competitive_reference_map.csv" \
+  --full-input \
+  --threads 8 \
+  --min-mapq 20 \
+  --min-aligned-length 60
+
+cat "$FULLHTLV/results/filtered_category_counts.tsv"
+```
+
+Monitor progress from another terminal:
+
+```bash
+FULLHTLV=/home/alizadehlab/cpwei/shuyu_project/local_work/targeted_htlv_full_competitive
+ls "$FULLHTLV/results"/*.idxstats.tsv 2>/dev/null | wc -l
+du -sh "$FULLHTLV"
+ps -u cpwei -o pid,etime,pcpu,pmem,cmd | grep -E 'bwa|samtools|run_retro' | grep -v grep
+```
+
 Proceed to full WGS only after choosing whether WGS should use:
 
 - larger subsampling,
