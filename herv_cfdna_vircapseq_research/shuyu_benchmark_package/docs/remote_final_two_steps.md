@@ -109,6 +109,7 @@ python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_retro_p
   --reference-map "$REFWORK/ref/retro_competitive_reference_map.csv" \
   --full-input \
   --threads 8 \
+  --sort-tmp-dir /tmp/cpwei_samtools_sort \
   --min-mapq 20 \
   --min-aligned-length 60
 
