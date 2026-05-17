@@ -78,9 +78,12 @@ def align_pair(
     log_path: Path,
     threads: int,
     sort_tmp_dir: Path | None,
+    keep_unmapped: bool,
 ) -> None:
     bwa_cmd = ["bwa", "mem", "-t", str(threads), str(ref_fasta), str(read1), str(read2)]
     view_cmd = ["samtools", "view", "-bS", "-"]
+    if not keep_unmapped:
+        view_cmd[2:2] = ["-F", "4"]
     sort_cmd = ["samtools", "sort", "-@", "4"]
     if sort_tmp_dir is not None:
         sort_tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -101,6 +104,14 @@ def align_pair(
     if bwa_rc != 0 or view_rc != 0 or sort_rc != 0:
         raise subprocess.CalledProcessError(sort_rc or view_rc or bwa_rc, f"alignment pipeline for {sample}")
     run(["samtools", "index", str(bam_path)])
+
+
+def bam_is_usable(bam_path: Path) -> bool:
+    bai_path = bam_path.with_name(f"{bam_path.name}.bai")
+    if not bam_path.exists() or bam_path.stat().st_size == 0 or not bai_path.exists():
+        return False
+    result = subprocess.run(["samtools", "quickcheck", str(bam_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return result.returncode == 0
 
 
 def write_idxstats(bam_path: Path, idxstats_path: Path) -> None:
@@ -180,6 +191,16 @@ def main() -> int:
         type=Path,
         help="Directory for samtools sort temporary files. Use a local filesystem such as /tmp/cpwei_sort if network storage gives Illegal seek.",
     )
+    parser.add_argument(
+        "--keep-unmapped",
+        action="store_true",
+        help="Keep unmapped reads in output BAMs. Default stores mapped reads only to keep full FASTQ runs small.",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Reuse existing valid BAM/index outputs and continue after an interrupted run.",
+    )
     parser.add_argument("--min-mapq", type=int, default=20)
     parser.add_argument("--min-aligned-length", type=int, default=60)
     parser.add_argument("--force-subsample", action="store_true")
@@ -209,17 +230,22 @@ def main() -> int:
             read1, read2 = subsample_pair(row, fastq_dir, args.pairs, args.seed, args.force_subsample)
         bam = bam_dir / f"{sample}.retrovirus.bam"
         idxstats = result_dir / f"{sample}.idxstats.tsv"
-        align_pair(
-            sample,
-            args.reference_fasta,
-            read1,
-            read2,
-            bam,
-            log_dir / f"{sample}.bwa.log",
-            args.threads,
-            args.sort_tmp_dir,
-        )
-        write_idxstats(bam, idxstats)
+        if args.resume and bam_is_usable(bam):
+            print(f"Reusing existing BAM for {sample}")
+        else:
+            align_pair(
+                sample,
+                args.reference_fasta,
+                read1,
+                read2,
+                bam,
+                log_dir / f"{sample}.bwa.log",
+                args.threads,
+                args.sort_tmp_dir,
+                args.keep_unmapped,
+            )
+        if not args.resume or not idxstats.exists() or idxstats.stat().st_size == 0:
+            write_idxstats(bam, idxstats)
 
         raw = raw_idxstats_counts(idxstats, reference_map)
         filt = filtered_counts(bam, reference_map, args.min_mapq, args.min_aligned_length)
@@ -236,6 +262,7 @@ def main() -> int:
                 "min_mapq": args.min_mapq,
                 "min_aligned_length": args.min_aligned_length,
                 "sort_tmp_dir": str(args.sort_tmp_dir or ""),
+                "keep_unmapped": args.keep_unmapped,
             }
         )
 
