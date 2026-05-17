@@ -77,10 +77,15 @@ def align_pair(
     bam_path: Path,
     log_path: Path,
     threads: int,
+    sort_tmp_dir: Path | None,
 ) -> None:
     bwa_cmd = ["bwa", "mem", "-t", str(threads), str(ref_fasta), str(read1), str(read2)]
     view_cmd = ["samtools", "view", "-bS", "-"]
-    sort_cmd = ["samtools", "sort", "-@", "4", "-o", str(bam_path)]
+    sort_cmd = ["samtools", "sort", "-@", "4"]
+    if sort_tmp_dir is not None:
+        sort_tmp_dir.mkdir(parents=True, exist_ok=True)
+        sort_cmd.extend(["-T", str(sort_tmp_dir / sample)])
+    sort_cmd.extend(["-o", str(bam_path)])
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("w", encoding="utf-8") as log_handle:
         bwa = subprocess.Popen(bwa_cmd, stdout=subprocess.PIPE, stderr=log_handle)
@@ -170,6 +175,11 @@ def main() -> int:
     )
     parser.add_argument("--seed", type=int, default=101)
     parser.add_argument("--threads", type=int, default=8)
+    parser.add_argument(
+        "--sort-tmp-dir",
+        type=Path,
+        help="Directory for samtools sort temporary files. Use a local filesystem such as /tmp/cpwei_sort if network storage gives Illegal seek.",
+    )
     parser.add_argument("--min-mapq", type=int, default=20)
     parser.add_argument("--min-aligned-length", type=int, default=60)
     parser.add_argument("--force-subsample", action="store_true")
@@ -199,7 +209,16 @@ def main() -> int:
             read1, read2 = subsample_pair(row, fastq_dir, args.pairs, args.seed, args.force_subsample)
         bam = bam_dir / f"{sample}.retrovirus.bam"
         idxstats = result_dir / f"{sample}.idxstats.tsv"
-        align_pair(sample, args.reference_fasta, read1, read2, bam, log_dir / f"{sample}.bwa.log", args.threads)
+        align_pair(
+            sample,
+            args.reference_fasta,
+            read1,
+            read2,
+            bam,
+            log_dir / f"{sample}.bwa.log",
+            args.threads,
+            args.sort_tmp_dir,
+        )
         write_idxstats(bam, idxstats)
 
         raw = raw_idxstats_counts(idxstats, reference_map)
@@ -216,6 +235,7 @@ def main() -> int:
                 "pairs": "full" if args.full_input else args.pairs,
                 "min_mapq": args.min_mapq,
                 "min_aligned_length": args.min_aligned_length,
+                "sort_tmp_dir": str(args.sort_tmp_dir or ""),
             }
         )
 
