@@ -61,6 +61,7 @@ temp/
 scratch/
 work/
 workdir/
+local_work/
 staging/
 cache/
 .cache/

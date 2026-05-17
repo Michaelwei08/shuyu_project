@@ -1,0 +1,100 @@
+# Remote Final Two Pre-Full-Run Steps
+
+These commands assume the `retro_qc` conda environment is active and that `bwa`, `samtools`, `seqtk`, and `efetch` are available.
+
+## 1. Build Competitive HIV/HTLV/HERV/LINE1 Reference
+
+```bash
+cd /home/alizadehlab/cpwei/shuyu_project
+WORK=/home/alizadehlab/cpwei/shuyu_project/local_work/retro_competitive
+mkdir -p "$WORK/ref"
+
+python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/make_retro_competitive_reference.py \
+  --from-efetch-defaults \
+  --output-fasta "$WORK/ref/retro_competitive.fa" \
+  --output-map "$WORK/ref/retro_competitive_reference_map.csv" \
+  --index
+
+cat "$WORK/ref/retro_competitive_reference_map.csv"
+```
+
+Default records:
+
+- HIV-1 HXB2: `K03455`
+- HIV-2 ROD: `M15390`
+- HTLV-1 ATK: `J02029`
+- HTLV-2 Mo: `M10060`
+- HERV-K113: `AY037928`
+- LINE1 L1.3: `L19088`
+
+If better local HERV/LINE1 consensus FASTAs exist, append them with repeated `--extra-fasta CATEGORY:/path/to/file.fa`.
+
+## 2. Re-run 7-Sample Pilot With Competitive Reference
+
+```bash
+cd /home/alizadehlab/cpwei/shuyu_project
+REFWORK=/home/alizadehlab/cpwei/shuyu_project/local_work/retro_competitive
+PILOTWORK=/home/alizadehlab/cpwei/shuyu_project/local_work/shuyu_pilot7_competitive
+
+python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_retro_pilot_alignment.py \
+  --manifest herv_cfdna_vircapseq_research/shuyu_benchmark_package/output/pilot_manifest.csv \
+  --work-dir "$PILOTWORK" \
+  --reference-fasta "$REFWORK/ref/retro_competitive.fa" \
+  --reference-map "$REFWORK/ref/retro_competitive_reference_map.csv" \
+  --pairs 1000000 \
+  --threads 8 \
+  --min-mapq 20 \
+  --min-aligned-length 60
+
+cat "$PILOTWORK/results/filtered_category_counts.tsv"
+```
+
+Expected gate:
+
+- HL WGS controls stay zero or near-zero for HIV and HTLV.
+- `TCL201`, `TCL202`, and `TCL203` retain HTLV1 signal after HERV/LINE1 decoys are present.
+- Spurious short HIV signal stays removed.
+
+## 3. Larger WGS HIV-vs-HL Check
+
+Run 5 million pairs for one HIV WGS and one HL WGS control:
+
+```bash
+cd /home/alizadehlab/cpwei/shuyu_project
+REFWORK=/home/alizadehlab/cpwei/shuyu_project/local_work/retro_competitive
+WGSWORK=/home/alizadehlab/cpwei/shuyu_project/local_work/shuyu_wgs_5m_competitive
+
+python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_retro_pilot_alignment.py \
+  --manifest herv_cfdna_vircapseq_research/shuyu_benchmark_package/output/sample_manifest.csv \
+  --work-dir "$WGSWORK" \
+  --reference-fasta "$REFWORK/ref/retro_competitive.fa" \
+  --reference-map "$REFWORK/ref/retro_competitive_reference_map.csv" \
+  --sample-id wgs_60samples_hiv_hl_HIV001-P1_S01 \
+  --sample-id wgs_60samples_hiv_hl_HL350-P1_S02 \
+  --pairs 5000000 \
+  --threads 8 \
+  --min-mapq 20 \
+  --min-aligned-length 60
+
+cat "$WGSWORK/results/filtered_category_counts.tsv"
+```
+
+Expected gate:
+
+- HL control should remain zero for HIV/HTLV.
+- HIV WGS may remain zero at 5M pairs; that does not fail the method because WGS HIV signal may be extremely sparse.
+- If HIV appears in HIV WGS but not HL control, proceed to larger HIV WGS sampling or full WGS scan.
+
+## Full-Round Decision
+
+Proceed to full targeted HTLV first if:
+
+- 7-sample competitive pilot keeps HTLV targeted samples positive.
+- HL controls remain negative.
+- HERV/LINE1 decoys do not absorb all HTLV signal.
+
+Proceed to full WGS only after choosing whether WGS should use:
+
+- larger subsampling,
+- all-read viral alignment,
+- or human-first unmapped/poorly mapped read extraction.
