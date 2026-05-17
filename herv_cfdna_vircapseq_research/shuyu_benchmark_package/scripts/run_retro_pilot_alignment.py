@@ -59,6 +59,16 @@ def subsample_pair(row: dict[str, str], outdir: Path, pairs: int, seed: int, for
     return out1, out2
 
 
+def original_pair(row: dict[str, str]) -> tuple[Path, Path]:
+    read1 = Path(row["read1_path"])
+    read2 = Path(row["read2_path"])
+    if not read1.exists() or read1.stat().st_size == 0:
+        raise FileNotFoundError(f"Missing or empty R1 for {row['sample_id']}: {read1}")
+    if not read2.exists() or read2.stat().st_size == 0:
+        raise FileNotFoundError(f"Missing or empty R2 for {row['sample_id']}: {read2}")
+    return read1, read2
+
+
 def align_pair(
     sample: str,
     ref_fasta: Path,
@@ -153,6 +163,11 @@ def main() -> int:
     parser.add_argument("--reference-map", type=Path, required=True)
     parser.add_argument("--sample-id", action="append", default=[])
     parser.add_argument("--pairs", type=int, default=1_000_000)
+    parser.add_argument(
+        "--full-input",
+        action="store_true",
+        help="Use original FASTQs directly instead of subsampling with seqtk. Intended for full targeted runs.",
+    )
     parser.add_argument("--seed", type=int, default=101)
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--min-mapq", type=int, default=20)
@@ -164,7 +179,7 @@ def main() -> int:
     reference_map = load_reference_map(args.reference_map)
     categories = sorted(set(reference_map.values()))
 
-    fastq_dir = args.work_dir / f"fastq_{args.pairs}"
+    fastq_dir = args.work_dir / ("fastq_full_inputs" if args.full_input else f"fastq_{args.pairs}")
     bam_dir = args.work_dir / "bam"
     result_dir = args.work_dir / "results"
     log_dir = args.work_dir / "logs"
@@ -178,7 +193,10 @@ def main() -> int:
     for row in rows:
         sample = row["sample_id"]
         print(f"Running {sample}")
-        read1, read2 = subsample_pair(row, fastq_dir, args.pairs, args.seed, args.force_subsample)
+        if args.full_input:
+            read1, read2 = original_pair(row)
+        else:
+            read1, read2 = subsample_pair(row, fastq_dir, args.pairs, args.seed, args.force_subsample)
         bam = bam_dir / f"{sample}.retrovirus.bam"
         idxstats = result_dir / f"{sample}.idxstats.tsv"
         align_pair(sample, args.reference_fasta, read1, read2, bam, log_dir / f"{sample}.bwa.log", args.threads)
@@ -195,7 +213,7 @@ def main() -> int:
                 "read2": str(read2),
                 "bam": str(bam),
                 "idxstats": str(idxstats),
-                "pairs": args.pairs,
+                "pairs": "full" if args.full_input else args.pairs,
                 "min_mapq": args.min_mapq,
                 "min_aligned_length": args.min_aligned_length,
             }
