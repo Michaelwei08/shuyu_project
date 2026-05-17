@@ -100,7 +100,9 @@ Only run complete targeted FASTQ pairs. This uses original FASTQs directly and d
 ```bash
 cd /home/alizadehlab/cpwei/shuyu_project
 REFWORK=/home/alizadehlab/cpwei/shuyu_project/local_work/retro_competitive
-FULLHTLV=/home/alizadehlab/cpwei/shuyu_project/local_work/targeted_htlv_full_competitive
+FULLHTLV=/drive3/cpwei/shuyu_runs/targeted_htlv_full_competitive
+SORTTMP=/drive3/cpwei/tmp/samtools_sort
+mkdir -p "$FULLHTLV" "$SORTTMP"
 
 python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_retro_pilot_alignment.py \
   --manifest herv_cfdna_vircapseq_research/shuyu_benchmark_package/output/targeted_htlv_complete_manifest.csv \
@@ -109,17 +111,20 @@ python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_retro_p
   --reference-map "$REFWORK/ref/retro_competitive_reference_map.csv" \
   --full-input \
   --threads 8 \
-  --sort-tmp-dir /tmp/cpwei_samtools_sort \
+  --sort-tmp-dir "$SORTTMP" \
+  --resume \
   --min-mapq 20 \
   --min-aligned-length 60
 
 cat "$FULLHTLV/results/filtered_category_counts.tsv"
 ```
 
+By default, this stores only mapped reads in the BAMs. Use `--keep-unmapped` only for debugging, not for full FASTQ runs, because all-read BAMs can exceed home quotas quickly.
+
 Monitor progress from another terminal:
 
 ```bash
-FULLHTLV=/home/alizadehlab/cpwei/shuyu_project/local_work/targeted_htlv_full_competitive
+FULLHTLV=/drive3/cpwei/shuyu_runs/targeted_htlv_full_competitive
 ls "$FULLHTLV/results"/*.idxstats.tsv 2>/dev/null | wc -l
 du -sh "$FULLHTLV"
 ps -u cpwei -o pid,etime,pcpu,pmem,cmd | grep -E 'bwa|samtools|run_retro' | grep -v grep
