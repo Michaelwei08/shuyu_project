@@ -139,3 +139,61 @@ Proceed to full WGS only after choosing whether WGS should use:
 - larger subsampling,
 - all-read viral alignment,
 - or human-first unmapped/poorly mapped read extraction.
+
+## 5. WGS HIV-vs-HL 5M-Pair Screen
+
+Run all 60 WGS samples at 5 million pairs per sample before considering full WGS. This verifies control specificity without committing to the full WGS compute/storage cost.
+
+```bash
+cd /home/alizadehlab/cpwei/shuyu_project
+
+python - <<'PY'
+import csv
+inp = "herv_cfdna_vircapseq_research/shuyu_benchmark_package/output/sample_manifest.csv"
+out = "herv_cfdna_vircapseq_research/shuyu_benchmark_package/output/wgs_complete_manifest.csv"
+rows = [
+    row for row in csv.DictReader(open(inp))
+    if row["assay_type"] == "WGS" and row["read1_path"] and row["read2_path"]
+]
+with open(out, "w", newline="") as handle:
+    writer = csv.DictWriter(handle, fieldnames=rows[0].keys())
+    writer.writeheader()
+    writer.writerows(rows)
+print(f"wrote {len(rows)} WGS rows to {out}")
+PY
+
+REFWORK=/drive3/cpwei/shuyu_runs/archive_before_home_cleanup_2026-05-17/retro_competitive
+WGSWORK=/drive3/cpwei/shuyu_runs/wgs_hiv_hl_5m_competitive
+SORTTMP=/drive3/cpwei/tmp/samtools_sort
+mkdir -p "$WGSWORK" "$SORTTMP"
+
+python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_retro_pilot_alignment.py \
+  --manifest herv_cfdna_vircapseq_research/shuyu_benchmark_package/output/wgs_complete_manifest.csv \
+  --work-dir "$WGSWORK" \
+  --reference-fasta "$REFWORK/ref/retro_competitive.fa" \
+  --reference-map "$REFWORK/ref/retro_competitive_reference_map.csv" \
+  --pairs 5000000 \
+  --jobs 4 \
+  --threads 16 \
+  --sort-threads 2 \
+  --sort-tmp-dir "$SORTTMP" \
+  --resume \
+  --min-mapq 20 \
+  --min-aligned-length 60
+
+python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/summarize_wgs_retro_results.py \
+  --counts "$WGSWORK/results/filtered_category_counts.tsv" \
+  --manifest herv_cfdna_vircapseq_research/shuyu_benchmark_package/output/wgs_complete_manifest.csv \
+  --output-dir "$WGSWORK/results/final_summary"
+
+cat "$WGSWORK/results/final_summary/wgs_retro_report.md"
+```
+
+Monitor progress:
+
+```bash
+WGSWORK=/drive3/cpwei/shuyu_runs/wgs_hiv_hl_5m_competitive
+find "$WGSWORK/results" -name "*.idxstats.tsv" | wc -l
+ps -u cpwei -o pid,etime,pcpu,pmem,cmd | grep -E 'bwa|samtools|run_retro' | grep -v grep
+du -sh "$WGSWORK"
+```
