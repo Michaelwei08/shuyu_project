@@ -4,6 +4,7 @@ import argparse
 import csv
 import re
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 
@@ -76,15 +77,17 @@ def align_pair(
     read2: Path,
     bam_path: Path,
     log_path: Path,
+    samtools_exe: str,
     threads: int,
+    sort_threads: int,
     sort_tmp_dir: Path | None,
     keep_unmapped: bool,
 ) -> None:
     bwa_cmd = ["bwa", "mem", "-t", str(threads), str(ref_fasta), str(read1), str(read2)]
-    view_cmd = ["samtools", "view", "-bS", "-"]
+    view_cmd = [samtools_exe, "view", "-bS", "-"]
     if not keep_unmapped:
         view_cmd[2:2] = ["-F", "4"]
-    sort_cmd = ["samtools", "sort", "-@", "4"]
+    sort_cmd = [samtools_exe, "sort", "-@", str(sort_threads)]
     if sort_tmp_dir is not None:
         sort_tmp_dir.mkdir(parents=True, exist_ok=True)
         sort_cmd.extend(["-T", str(sort_tmp_dir / sample)])
@@ -103,19 +106,19 @@ def align_pair(
         bwa_rc = bwa.wait()
     if bwa_rc != 0 or view_rc != 0 or sort_rc != 0:
         raise subprocess.CalledProcessError(sort_rc or view_rc or bwa_rc, f"alignment pipeline for {sample}")
-    run(["samtools", "index", str(bam_path)])
+    run([samtools_exe, "index", str(bam_path)])
 
 
-def bam_is_usable(bam_path: Path) -> bool:
+def bam_is_usable(bam_path: Path, samtools_exe: str) -> bool:
     bai_path = bam_path.with_name(f"{bam_path.name}.bai")
     if not bam_path.exists() or bam_path.stat().st_size == 0 or not bai_path.exists():
         return False
-    result = subprocess.run(["samtools", "quickcheck", str(bam_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    result = subprocess.run([samtools_exe, "quickcheck", str(bam_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return result.returncode == 0
 
 
-def write_idxstats(bam_path: Path, idxstats_path: Path) -> None:
-    run(["samtools", "idxstats", str(bam_path)], stdout_path=idxstats_path)
+def write_idxstats(bam_path: Path, idxstats_path: Path, samtools_exe: str) -> None:
+    run([samtools_exe, "idxstats", str(bam_path)], stdout_path=idxstats_path)
 
 
 def raw_idxstats_counts(idxstats_path: Path, reference_map: dict[str, str]) -> dict[str, int]:
@@ -136,10 +139,11 @@ def filtered_counts(
     reference_map: dict[str, str],
     min_mapq: int,
     min_aligned_length: int,
+    samtools_exe: str,
 ) -> dict[str, int]:
     counts: dict[str, int] = {}
     seen: set[tuple[str, str]] = set()
-    result = subprocess.run(["samtools", "view", "-F", "4", str(bam_path)], text=True, stdout=subprocess.PIPE, check=True)
+    result = subprocess.run([samtools_exe, "view", "-F", "4", str(bam_path)], text=True, stdout=subprocess.PIPE, check=True)
     for line in result.stdout.splitlines():
         fields = line.split("\t")
         if len(fields) < 6:
@@ -171,6 +175,65 @@ def select_rows(rows: list[dict[str, str]], sample_ids: list[str]) -> list[dict[
     return selected
 
 
+def process_sample(
+    index: int,
+    row: dict[str, str],
+    args: argparse.Namespace,
+    reference_map: dict[str, str],
+    categories: list[str],
+    fastq_dir: Path,
+    bam_dir: Path,
+    result_dir: Path,
+    log_dir: Path,
+) -> tuple[int, dict[str, object], dict[str, object], dict[str, object]]:
+    sample = row["sample_id"]
+    if args.full_input:
+        read1, read2 = original_pair(row)
+    else:
+        read1, read2 = subsample_pair(row, fastq_dir, args.pairs, args.seed, args.force_subsample)
+    bam = bam_dir / f"{sample}.retrovirus.bam"
+    idxstats = result_dir / f"{sample}.idxstats.tsv"
+    status = "reused_bam" if args.resume and bam_is_usable(bam, args.samtools_exe) else "aligned"
+    if status == "aligned":
+        align_pair(
+            sample,
+            args.reference_fasta,
+            read1,
+            read2,
+            bam,
+            log_dir / f"{sample}.bwa.log",
+            args.samtools_exe,
+            args.threads,
+            args.sort_threads,
+            args.sort_tmp_dir,
+            args.keep_unmapped,
+        )
+    if not args.resume or not idxstats.exists() or idxstats.stat().st_size == 0:
+        write_idxstats(bam, idxstats, args.samtools_exe)
+
+    raw = raw_idxstats_counts(idxstats, reference_map)
+    filt = filtered_counts(bam, reference_map, args.min_mapq, args.min_aligned_length, args.samtools_exe)
+    raw_row = {"sample": sample, **{category: raw.get(category, 0) for category in categories}}
+    filtered_row = {"sample": sample, **{category: filt.get(category, 0) for category in categories}}
+    run_row = {
+        "sample": sample,
+        "status": status,
+        "read1": str(read1),
+        "read2": str(read2),
+        "bam": str(bam),
+        "idxstats": str(idxstats),
+        "pairs": "full" if args.full_input else args.pairs,
+        "jobs": args.jobs,
+        "threads": args.threads,
+        "sort_threads": args.sort_threads,
+        "min_mapq": args.min_mapq,
+        "min_aligned_length": args.min_aligned_length,
+        "sort_tmp_dir": str(args.sort_tmp_dir or ""),
+        "keep_unmapped": args.keep_unmapped,
+    }
+    return index, raw_row, filtered_row, run_row
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run subsampled BWA retrovirus pilot and filtered category counts.")
     parser.add_argument("--manifest", type=Path, required=True)
@@ -186,6 +249,14 @@ def main() -> int:
     )
     parser.add_argument("--seed", type=int, default=101)
     parser.add_argument("--threads", type=int, default=8)
+    parser.add_argument("--sort-threads", type=int, default=4)
+    parser.add_argument("--samtools-exe", default="samtools")
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=1,
+        help="Number of samples to process concurrently. Total CPU pressure is roughly jobs * (threads + sort_threads).",
+    )
     parser.add_argument(
         "--sort-tmp-dir",
         type=Path,
@@ -205,6 +276,8 @@ def main() -> int:
     parser.add_argument("--min-aligned-length", type=int, default=60)
     parser.add_argument("--force-subsample", action="store_true")
     args = parser.parse_args()
+    if args.jobs < 1:
+        raise SystemExit("--jobs must be >= 1")
 
     rows = select_rows(read_csv(args.manifest), args.sample_id)
     reference_map = load_reference_map(args.reference_map)
@@ -217,54 +290,32 @@ def main() -> int:
     for path in (fastq_dir, bam_dir, result_dir, log_dir):
         path.mkdir(parents=True, exist_ok=True)
 
-    raw_rows: list[dict[str, object]] = []
-    filtered_rows: list[dict[str, object]] = []
-    run_rows: list[dict[str, object]] = []
-
-    for row in rows:
-        sample = row["sample_id"]
-        print(f"Running {sample}")
-        if args.full_input:
-            read1, read2 = original_pair(row)
-        else:
-            read1, read2 = subsample_pair(row, fastq_dir, args.pairs, args.seed, args.force_subsample)
-        bam = bam_dir / f"{sample}.retrovirus.bam"
-        idxstats = result_dir / f"{sample}.idxstats.tsv"
-        if args.resume and bam_is_usable(bam):
-            print(f"Reusing existing BAM for {sample}")
-        else:
-            align_pair(
-                sample,
-                args.reference_fasta,
-                read1,
-                read2,
-                bam,
-                log_dir / f"{sample}.bwa.log",
-                args.threads,
-                args.sort_tmp_dir,
-                args.keep_unmapped,
-            )
-        if not args.resume or not idxstats.exists() or idxstats.stat().st_size == 0:
-            write_idxstats(bam, idxstats)
-
-        raw = raw_idxstats_counts(idxstats, reference_map)
-        filt = filtered_counts(bam, reference_map, args.min_mapq, args.min_aligned_length)
-        raw_rows.append({"sample": sample, **{category: raw.get(category, 0) for category in categories}})
-        filtered_rows.append({"sample": sample, **{category: filt.get(category, 0) for category in categories}})
-        run_rows.append(
-            {
-                "sample": sample,
-                "read1": str(read1),
-                "read2": str(read2),
-                "bam": str(bam),
-                "idxstats": str(idxstats),
-                "pairs": "full" if args.full_input else args.pairs,
-                "min_mapq": args.min_mapq,
-                "min_aligned_length": args.min_aligned_length,
-                "sort_tmp_dir": str(args.sort_tmp_dir or ""),
-                "keep_unmapped": args.keep_unmapped,
+    results: list[tuple[int, dict[str, object], dict[str, object], dict[str, object]]] = []
+    if args.jobs == 1:
+        for index, row in enumerate(rows):
+            print(f"Running {row['sample_id']}")
+            result = process_sample(index, row, args, reference_map, categories, fastq_dir, bam_dir, result_dir, log_dir)
+            results.append(result)
+            print(f"Completed {row['sample_id']} ({result[3]['status']})")
+    else:
+        with ThreadPoolExecutor(max_workers=args.jobs) as executor:
+            futures = {
+                executor.submit(process_sample, index, row, args, reference_map, categories, fastq_dir, bam_dir, result_dir, log_dir): row["sample_id"]
+                for index, row in enumerate(rows)
             }
-        )
+            for completed, future in enumerate(as_completed(futures), start=1):
+                sample = futures[future]
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    raise SystemExit(f"Sample failed: {sample}: {exc}") from exc
+                results.append(result)
+                print(f"Completed {completed}/{len(futures)} {sample} ({result[3]['status']})")
+
+    ordered = sorted(results, key=lambda item: item[0])
+    raw_rows = [item[1] for item in ordered]
+    filtered_rows = [item[2] for item in ordered]
+    run_rows = [item[3] for item in ordered]
 
     write_csv(result_dir / "raw_idxstats_category_counts.tsv", raw_rows, ["sample", *categories])
     write_csv(result_dir / "filtered_category_counts.tsv", filtered_rows, ["sample", *categories])

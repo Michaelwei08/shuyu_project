@@ -110,7 +110,9 @@ python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_retro_p
   --reference-fasta "$REFWORK/ref/retro_competitive.fa" \
   --reference-map "$REFWORK/ref/retro_competitive_reference_map.csv" \
   --full-input \
-  --threads 8 \
+  --jobs 4 \
+  --threads 16 \
+  --sort-threads 2 \
   --sort-tmp-dir "$SORTTMP" \
   --resume \
   --min-mapq 20 \
@@ -120,6 +122,8 @@ cat "$FULLHTLV/results/filtered_category_counts.tsv"
 ```
 
 By default, this stores only mapped reads in the BAMs. Use `--keep-unmapped` only for debugging, not for full FASTQ runs, because all-read BAMs can exceed home quotas quickly.
+
+`--jobs` controls sample-level parallelism. `--threads` controls BWA threads per active sample. Total CPU pressure is approximately `jobs * (threads + sort_threads)`, plus some single-threaded counting overhead. On a large shared server, start with `--jobs 4 --threads 16 --sort-threads 2`; increase only if CPU is high and `/drive3` I/O is not the bottleneck.
 
 Monitor progress from another terminal:
 
