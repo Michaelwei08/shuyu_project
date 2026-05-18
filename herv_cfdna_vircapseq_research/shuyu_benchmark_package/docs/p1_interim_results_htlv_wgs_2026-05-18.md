@@ -59,12 +59,13 @@ Full WGS summary:
   - HIV-labeled WGS: 4,212,518.
   - HL controls: 4,073,247.
 
-The two WGS HIV-positive calls were each single-fragment HIV1 detections. Compact alignment inspection showed:
+The two WGS HIV-positive calls were each single-fragment HIV1 detections. Compact fragment-level audit showed:
 
 - HIV1 reference: K03455.1.
 - MAPQ: 60.
-- Aligned length: >120 bp.
+- Aligned length: 122-141 bp across mate records.
 - Secondary alignment score: XS:i:0.
+- Alternative alignment flags: no SA or XA tags.
 - Count after deduplication: 1 HIV1 fragment per positive sample.
 
 Interpretation:
@@ -91,8 +92,8 @@ The current evidence supports using this pipeline as a specificity-focused exoge
    - Aligned length >= 60 bp.
    - Deduplicate by read ID and reference category.
 
-2. Add a compact fragment-level audit table for the two WGS HIV1-positive calls:
-   - sample group, reference, position, MAPQ, CIGAR, aligned length, NM, AS, XS.
+2. Preserve the compact fragment-level audit table for the two WGS HIV1-positive calls:
+   - sample, category, hashed read ID, record count, reference, position, MAPQ, CIGAR, aligned length, NM, AS, XS, SA/XA flags.
    - no read sequence or quality string.
 
 3. Ask Shuyu for the targeted HIV cohort data when ready:
