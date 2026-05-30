@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import argparse
 import csv
-import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from retro_alignment_filters import filtered_counts, parse_category_min_mapq
 
 def read_csv(path: Path) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
-
 
 def write_csv(path: Path, rows: list[dict[str, object]], fieldnames: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -20,22 +19,12 @@ def write_csv(path: Path, rows: list[dict[str, object]], fieldnames: list[str]) 
         writer.writeheader()
         writer.writerows(rows)
 
-
 def load_reference_map(path: Path) -> dict[str, str]:
     rows = read_csv(path)
     mapping: dict[str, str] = {}
     for row in rows:
         mapping[row["reference_id"]] = row["category"]
     return mapping
-
-
-def aligned_len(cigar: str) -> int:
-    total = 0
-    for n, op in re.findall(r"(\d+)([MIDNSHP=X])", cigar):
-        if op in "M=X":
-            total += int(n)
-    return total
-
 
 def run(cmd: list[str], log_path: Path | None = None, stdout_path: Path | None = None) -> None:
     log_handle = log_path.open("w", encoding="utf-8") if log_path else None
@@ -48,7 +37,6 @@ def run(cmd: list[str], log_path: Path | None = None, stdout_path: Path | None =
         if stdout_handle:
             stdout_handle.close()
 
-
 def subsample_pair(row: dict[str, str], outdir: Path, pairs: int, seed: int, force: bool) -> tuple[Path, Path]:
     sample = row["sample_id"]
     out1 = outdir / f"{sample}.R1.fastq"
@@ -59,7 +47,6 @@ def subsample_pair(row: dict[str, str], outdir: Path, pairs: int, seed: int, for
     run(["seqtk", "sample", f"-s{seed}", row["read2_path"], str(pairs)], stdout_path=out2)
     return out1, out2
 
-
 def original_pair(row: dict[str, str]) -> tuple[Path, Path]:
     read1 = Path(row["read1_path"])
     read2 = Path(row["read2_path"])
@@ -68,7 +55,6 @@ def original_pair(row: dict[str, str]) -> tuple[Path, Path]:
     if not read2.exists() or read2.stat().st_size == 0:
         raise FileNotFoundError(f"Missing or empty R2 for {row['sample_id']}: {read2}")
     return read1, read2
-
 
 def align_pair(
     sample: str,
@@ -108,7 +94,6 @@ def align_pair(
         raise subprocess.CalledProcessError(sort_rc or view_rc or bwa_rc, f"alignment pipeline for {sample}")
     run([samtools_exe, "index", str(bam_path)])
 
-
 def bam_is_usable(bam_path: Path, samtools_exe: str) -> bool:
     bai_path = bam_path.with_name(f"{bam_path.name}.bai")
     if not bam_path.exists() or bam_path.stat().st_size == 0 or not bai_path.exists():
@@ -116,10 +101,8 @@ def bam_is_usable(bam_path: Path, samtools_exe: str) -> bool:
     result = subprocess.run([samtools_exe, "quickcheck", str(bam_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return result.returncode == 0
 
-
 def write_idxstats(bam_path: Path, idxstats_path: Path, samtools_exe: str) -> None:
     run([samtools_exe, "idxstats", str(bam_path)], stdout_path=idxstats_path)
-
 
 def raw_idxstats_counts(idxstats_path: Path, reference_map: dict[str, str]) -> dict[str, int]:
     counts: dict[str, int] = {}
@@ -133,37 +116,6 @@ def raw_idxstats_counts(idxstats_path: Path, reference_map: dict[str, str]) -> d
             counts[category] = counts.get(category, 0) + mapped
     return counts
 
-
-def filtered_counts(
-    bam_path: Path,
-    reference_map: dict[str, str],
-    min_mapq: int,
-    min_aligned_length: int,
-    samtools_exe: str,
-) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    seen: set[tuple[str, str]] = set()
-    result = subprocess.run([samtools_exe, "view", "-F", "4", str(bam_path)], text=True, stdout=subprocess.PIPE, check=True)
-    for line in result.stdout.splitlines():
-        fields = line.split("\t")
-        if len(fields) < 6:
-            continue
-        read_id, ref, mapq_text, cigar = fields[0], fields[2], fields[4], fields[5]
-        if ref not in reference_map:
-            continue
-        if int(mapq_text) < min_mapq:
-            continue
-        if aligned_len(cigar) < min_aligned_length:
-            continue
-        category = reference_map[ref]
-        key = (read_id, category)
-        if key in seen:
-            continue
-        seen.add(key)
-        counts[category] = counts.get(category, 0) + 1
-    return counts
-
-
 def select_rows(rows: list[dict[str, str]], sample_ids: list[str]) -> list[dict[str, str]]:
     if not sample_ids:
         return rows
@@ -173,7 +125,6 @@ def select_rows(rows: list[dict[str, str]], sample_ids: list[str]) -> list[dict[
     if missing:
         raise SystemExit(f"Requested sample_id not found in manifest: {', '.join(sorted(missing))}")
     return selected
-
 
 def process_sample(
     index: int,
@@ -185,7 +136,7 @@ def process_sample(
     bam_dir: Path,
     result_dir: Path,
     log_dir: Path,
-) -> tuple[int, dict[str, object], dict[str, object], dict[str, object]]:
+) -> tuple[int, dict[str, object], dict[str, object], dict[str, object], dict[str, object], dict[str, object]]:
     sample = row["sample_id"]
     if args.full_input:
         read1, read2 = original_pair(row)
@@ -212,9 +163,21 @@ def process_sample(
         write_idxstats(bam, idxstats, args.samtools_exe)
 
     raw = raw_idxstats_counts(idxstats, reference_map)
-    filt = filtered_counts(bam, reference_map, args.min_mapq, args.min_aligned_length, args.samtools_exe)
+    filt, filtered_records, dedup_removed = filtered_counts(
+        bam,
+        reference_map,
+        args.min_mapq,
+        args.category_min_mapq_map,
+        args.min_aligned_length,
+        args.samtools_exe,
+        args.dedup_mode,
+        args.umi_regex,
+        args.require_unique_best,
+    )
     raw_row = {"sample": sample, **{category: raw.get(category, 0) for category in categories}}
     filtered_row = {"sample": sample, **{category: filt.get(category, 0) for category in categories}}
+    filtered_record_row = {"sample": sample, **{category: filtered_records.get(category, 0) for category in categories}}
+    dedup_removed_row = {"sample": sample, **{category: dedup_removed.get(category, 0) for category in categories}}
     run_row = {
         "sample": sample,
         "status": status,
@@ -227,12 +190,15 @@ def process_sample(
         "threads": args.threads,
         "sort_threads": args.sort_threads,
         "min_mapq": args.min_mapq,
+        "category_min_mapq": args.category_min_mapq_text,
         "min_aligned_length": args.min_aligned_length,
+        "dedup_mode": args.dedup_mode,
+        "umi_regex": args.umi_regex or "",
+        "require_unique_best": args.require_unique_best,
         "sort_tmp_dir": str(args.sort_tmp_dir or ""),
         "keep_unmapped": args.keep_unmapped,
     }
-    return index, raw_row, filtered_row, run_row
-
+    return index, raw_row, filtered_row, filtered_record_row, dedup_removed_row, run_row
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run subsampled BWA retrovirus pilot and filtered category counts.")
@@ -242,46 +208,36 @@ def main() -> int:
     parser.add_argument("--reference-map", type=Path, required=True)
     parser.add_argument("--sample-id", action="append", default=[])
     parser.add_argument("--pairs", type=int, default=1_000_000)
-    parser.add_argument(
-        "--full-input",
-        action="store_true",
-        help="Use original FASTQs directly instead of subsampling with seqtk. Intended for full targeted runs.",
-    )
+    parser.add_argument("--full-input", action="store_true", help="Use original FASTQs directly instead of subsampling.")
     parser.add_argument("--seed", type=int, default=101)
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--sort-threads", type=int, default=4)
     parser.add_argument("--samtools-exe", default="samtools")
-    parser.add_argument(
-        "--jobs",
-        type=int,
-        default=1,
-        help="Number of samples to process concurrently. Total CPU pressure is roughly jobs * (threads + sort_threads).",
-    )
-    parser.add_argument(
-        "--sort-tmp-dir",
-        type=Path,
-        help="Directory for samtools sort temporary files. Use a local filesystem such as /tmp/cpwei_sort if network storage gives Illegal seek.",
-    )
-    parser.add_argument(
-        "--keep-unmapped",
-        action="store_true",
-        help="Keep unmapped reads in output BAMs. Default stores mapped reads only to keep full FASTQ runs small.",
-    )
-    parser.add_argument(
-        "--resume",
-        action="store_true",
-        help="Reuse existing valid BAM/index outputs and continue after an interrupted run.",
-    )
+    parser.add_argument("--jobs", type=int, default=1, help="Samples to process concurrently.")
+    parser.add_argument("--sort-tmp-dir", type=Path, help="Directory for samtools sort temporary files.")
+    parser.add_argument("--keep-unmapped", action="store_true", help="Keep unmapped reads in output BAMs.")
+    parser.add_argument("--resume", action="store_true", help="Reuse existing valid BAM/index outputs.")
     parser.add_argument("--min-mapq", type=int, default=20)
+    parser.add_argument("--category-min-mapq", action="append", default=[], help="Override MAPQ by category, e.g. HUMAN:60.")
     parser.add_argument("--min-aligned-length", type=int, default=60)
+    parser.add_argument("--dedup-mode", choices=["none", "read_id", "coordinate", "fragment", "umi"], default="read_id")
+    parser.add_argument("--umi-regex", help="Regex used with --dedup-mode umi.")
+    parser.add_argument("--require-unique-best", action="store_true", help="Drop records with AS <= XS when both tags exist.")
     parser.add_argument("--force-subsample", action="store_true")
     args = parser.parse_args()
     if args.jobs < 1:
         raise SystemExit("--jobs must be >= 1")
+    if args.dedup_mode == "umi" and not args.umi_regex:
+        raise SystemExit("--dedup-mode umi requires --umi-regex")
 
     rows = select_rows(read_csv(args.manifest), args.sample_id)
     reference_map = load_reference_map(args.reference_map)
     categories = sorted(set(reference_map.values()))
+    args.category_min_mapq_map = parse_category_min_mapq(args.category_min_mapq)
+    unknown_categories = sorted(set(args.category_min_mapq_map) - set(categories))
+    if unknown_categories:
+        raise SystemExit(f"--category-min-mapq uses categories not found in reference map: {', '.join(unknown_categories)}")
+    args.category_min_mapq_text = ",".join(f"{category}:{args.category_min_mapq_map[category]}" for category in sorted(args.category_min_mapq_map))
 
     fastq_dir = args.work_dir / ("fastq_full_inputs" if args.full_input else f"fastq_{args.pairs}")
     bam_dir = args.work_dir / "bam"
@@ -290,13 +246,13 @@ def main() -> int:
     for path in (fastq_dir, bam_dir, result_dir, log_dir):
         path.mkdir(parents=True, exist_ok=True)
 
-    results: list[tuple[int, dict[str, object], dict[str, object], dict[str, object]]] = []
+    results: list[tuple[int, dict[str, object], dict[str, object], dict[str, object], dict[str, object], dict[str, object]]] = []
     if args.jobs == 1:
         for index, row in enumerate(rows):
             print(f"Running {row['sample_id']}")
             result = process_sample(index, row, args, reference_map, categories, fastq_dir, bam_dir, result_dir, log_dir)
             results.append(result)
-            print(f"Completed {row['sample_id']} ({result[3]['status']})")
+            print(f"Completed {row['sample_id']} ({result[5]['status']})")
     else:
         with ThreadPoolExecutor(max_workers=args.jobs) as executor:
             futures = {
@@ -310,15 +266,19 @@ def main() -> int:
                 except Exception as exc:
                     raise SystemExit(f"Sample failed: {sample}: {exc}") from exc
                 results.append(result)
-                print(f"Completed {completed}/{len(futures)} {sample} ({result[3]['status']})")
+                print(f"Completed {completed}/{len(futures)} {sample} ({result[5]['status']})")
 
     ordered = sorted(results, key=lambda item: item[0])
     raw_rows = [item[1] for item in ordered]
     filtered_rows = [item[2] for item in ordered]
-    run_rows = [item[3] for item in ordered]
+    filtered_record_rows = [item[3] for item in ordered]
+    dedup_removed_rows = [item[4] for item in ordered]
+    run_rows = [item[5] for item in ordered]
 
     write_csv(result_dir / "raw_idxstats_category_counts.tsv", raw_rows, ["sample", *categories])
+    write_csv(result_dir / "filtered_record_category_counts.tsv", filtered_record_rows, ["sample", *categories])
     write_csv(result_dir / "filtered_category_counts.tsv", filtered_rows, ["sample", *categories])
+    write_csv(result_dir / "dedup_removed_category_counts.tsv", dedup_removed_rows, ["sample", *categories])
     write_csv(result_dir / "run_manifest.tsv", run_rows, list(run_rows[0].keys()) if run_rows else ["sample"])
     print(f"Wrote {result_dir / 'filtered_category_counts.tsv'}")
     return 0

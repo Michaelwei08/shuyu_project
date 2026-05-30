@@ -1,0 +1,16 @@
+cohort	cohort_label	species	detected_samples	total_samples	proportion	threshold
+targeted_htlv	Targeted HTLV TCL	HTLV1	70	71	0.9859154929577465	1
+targeted_htlv	Targeted HTLV TCL	HTLV2	0	71	0.0	1
+targeted_htlv	Targeted HTLV TCL	HIV1	0	71	0.0	1
+targeted_htlv	Targeted HTLV TCL	HIV2	0	71	0.0	1
+targeted_htlv	Targeted HTLV TCL	HERV	70	71	0.9859154929577465	1
+HIV_WGS	WGS HIV+ DLBCL/BL	HTLV1	0	37	0.0	1
+HIV_WGS	WGS HIV+ DLBCL/BL	HTLV2	0	37	0.0	1
+HIV_WGS	WGS HIV+ DLBCL/BL	HIV1	2	37	0.05405405405405406	1
+HIV_WGS	WGS HIV+ DLBCL/BL	HIV2	0	37	0.0	1
+HIV_WGS	WGS HIV+ DLBCL/BL	HERV	37	37	1.0	1
+HL_control	WGS HL controls	HTLV1	0	23	0.0	1
+HL_control	WGS HL controls	HTLV2	0	23	0.0	1
+HL_control	WGS HL controls	HIV1	0	23	0.0	1
+HL_control	WGS HL controls	HIV2	0	23	0.0	1
+HL_control	WGS HL controls	HERV	23	23	1.0	1
