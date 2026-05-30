@@ -16,6 +16,21 @@ DEFAULT_NCBI_RECORDS = [
     ("L19088", "LINE1", "Human LINE-1 L1.3"),
 ]
 
+REFSEQ_NCBI_RECORDS = [
+    ("NC_001802.1", "HIV1", "Human immunodeficiency virus 1 RefSeq"),
+    ("NC_001722.1", "HIV2", "Human immunodeficiency virus 2 RefSeq"),
+    ("NC_001436.1", "HTLV1", "Human T-cell lymphotropic virus 1 RefSeq"),
+    ("NC_001488.1", "HTLV2", "Human T-cell lymphotropic virus 2 RefSeq"),
+    ("AY037928", "HERV", "Human endogenous retrovirus K113"),
+    ("L19088", "LINE1", "Human LINE-1 L1.3"),
+]
+
+PANELS = {
+    "current": DEFAULT_NCBI_RECORDS,
+    "refseq": REFSEQ_NCBI_RECORDS,
+    "both": DEFAULT_NCBI_RECORDS + REFSEQ_NCBI_RECORDS,
+}
+
 
 def parse_header_id(header: str) -> str:
     return header[1:].strip().split()[0]
@@ -99,7 +114,13 @@ def main() -> int:
     parser.add_argument(
         "--from-efetch-defaults",
         action="store_true",
-        help="Fetch HIV1, HIV2, HTLV1, HTLV2, HERV-K113, and LINE1 L1.3 from NCBI using efetch.",
+        help="Fetch the selected built-in reference panel from NCBI using efetch.",
+    )
+    parser.add_argument(
+        "--panel",
+        choices=sorted(PANELS),
+        default="current",
+        help="Built-in NCBI panel to fetch with --from-efetch-defaults. Use refseq to test Shuyu's NC_* accessions.",
     )
     parser.add_argument(
         "--extra-fasta",
@@ -107,11 +128,16 @@ def main() -> int:
         default=[],
         help="Append records from a local FASTA as CATEGORY:/path/to/file.fa. Can be repeated.",
     )
+    parser.add_argument(
+        "--human-fasta",
+        type=Path,
+        help="Append a local human reference FASTA as category HUMAN for full hg38+viral competitive alignment.",
+    )
     parser.add_argument("--index", action="store_true", help="Run bwa index on the output FASTA.")
     args = parser.parse_args()
 
-    if not args.from_efetch_defaults and not args.extra_fasta:
-        raise SystemExit("Provide --from-efetch-defaults and/or one or more --extra-fasta CATEGORY:path entries.")
+    if not args.from_efetch_defaults and not args.extra_fasta and not args.human_fasta:
+        raise SystemExit("Provide --from-efetch-defaults, --human-fasta, and/or one or more --extra-fasta CATEGORY:path entries.")
 
     args.output_fasta.parent.mkdir(parents=True, exist_ok=True)
     map_rows: list[dict[str, str]] = []
@@ -120,10 +146,15 @@ def main() -> int:
         if args.from_efetch_defaults:
             with tempfile.TemporaryDirectory() as tmpdir:
                 tmp = Path(tmpdir)
-                for accession, category, description in DEFAULT_NCBI_RECORDS:
+                for accession, category, description in PANELS[args.panel]:
                     fetched = tmp / f"{accession}.fa"
                     efetch_accession(accession, fetched)
                     append_fasta(fetched, category, out, map_rows, f"NCBI:{accession}:{description}")
+
+        if args.human_fasta:
+            if not args.human_fasta.exists():
+                raise FileNotFoundError(args.human_fasta)
+            append_fasta(args.human_fasta, "HUMAN", out, map_rows, f"local:{args.human_fasta}")
 
         for item in args.extra_fasta:
             category, fasta_path = parse_extra_fasta(item)
