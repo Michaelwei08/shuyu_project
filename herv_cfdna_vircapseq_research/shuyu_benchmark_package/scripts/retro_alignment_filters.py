@@ -121,34 +121,53 @@ def filtered_counts(
     record_counts: dict[str, int] = {}
     dedup_removed: dict[str, int] = {}
     seen: set[tuple[str, ...]] = set()
-    result = subprocess.run([samtools_exe, "view", "-F", "4", str(bam_path)], text=True, stdout=subprocess.PIPE, check=True)
-    for line in result.stdout.splitlines():
-        fields = line.split("\t")
-        if len(fields) < 6:
-            continue
-        ref, mapq_text, cigar = fields[2], fields[4], fields[5]
-        if ref not in reference_map:
-            continue
-        category = reference_map[ref]
-        mapq_threshold = category_min_mapq.get(category, min_mapq)
-        if int(mapq_text) < mapq_threshold:
-            continue
-        alignment_length = aligned_len(cigar)
-        if alignment_length < min_aligned_length:
-            continue
-        if require_unique_best:
-            alignment_score = sam_tag(fields, "AS")
-            suboptimal_score = sam_tag(fields, "XS")
-            if alignment_score is not None and suboptimal_score is not None and alignment_score <= suboptimal_score:
-                continue
 
-        record_counts[category] = record_counts.get(category, 0) + 1
-        key = dedup_key(dedup_mode, fields, category, alignment_length, umi_regex)
-        if key is not None:
-            key_text = tuple(str(item) for item in key)
-            if key_text in seen:
-                dedup_removed[category] = dedup_removed.get(category, 0) + 1
+    proc = subprocess.Popen(
+        [samtools_exe, "view", "-F", "4", str(bam_path)],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert proc.stdout is not None
+    try:
+        for line in proc.stdout:
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) < 6:
                 continue
-            seen.add(key_text)
-        counts[category] = counts.get(category, 0) + 1
+            ref, mapq_text, cigar = fields[2], fields[4], fields[5]
+            if ref not in reference_map:
+                continue
+            category = reference_map[ref]
+            mapq_threshold = category_min_mapq.get(category, min_mapq)
+            if int(mapq_text) < mapq_threshold:
+                continue
+            alignment_length = aligned_len(cigar)
+            if alignment_length < min_aligned_length:
+                continue
+            if require_unique_best:
+                alignment_score = sam_tag(fields, "AS")
+                suboptimal_score = sam_tag(fields, "XS")
+                if alignment_score is not None and suboptimal_score is not None and alignment_score <= suboptimal_score:
+                    continue
+
+            record_counts[category] = record_counts.get(category, 0) + 1
+            key = dedup_key(dedup_mode, fields, category, alignment_length, umi_regex)
+            if key is not None:
+                key_text = tuple(str(item) for item in key)
+                if key_text in seen:
+                    dedup_removed[category] = dedup_removed.get(category, 0) + 1
+                    continue
+                seen.add(key_text)
+            counts[category] = counts.get(category, 0) + 1
+    finally:
+        if proc.stdout:
+            proc.stdout.close()
+
+    stderr = proc.stderr.read() if proc.stderr else ""
+    if proc.stderr:
+        proc.stderr.close()
+    return_code = proc.wait()
+    if return_code != 0:
+        raise subprocess.CalledProcessError(return_code, [samtools_exe, "view", "-F", "4", str(bam_path)], stderr=stderr)
+
     return counts, record_counts, dedup_removed
