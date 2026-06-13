@@ -7,6 +7,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from retro_alignment_filters import dedup_key, sam_tag
+
 
 def read_table(path: Path, delimiter: str | None = None) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8") as handle:
@@ -77,12 +79,15 @@ def audit_sample(
     min_aligned_length: int,
     samtools_exe: str,
     include_read_id: bool,
+    dedup_mode: str,
+    require_unique_best: bool,
 ) -> list[dict[str, object]]:
     bam_path = bam_dir / f"{sample}.retrovirus.bam"
     if not bam_path.exists():
         raise FileNotFoundError(f"Missing BAM for {sample}: {bam_path}")
     refs = [ref for ref, category in reference_map.items() if category in categories]
     grouped: dict[tuple[str, str], list[list[str]]] = {}
+    seen: set[tuple[str, ...]] = set()
     for fields in sam_records(samtools_exe, bam_path, refs):
         if len(fields) < 11:
             continue
@@ -93,6 +98,17 @@ def audit_sample(
         alen = aligned_len(cigar)
         if int(mapq_text) < min_mapq or alen < min_aligned_length:
             continue
+        if require_unique_best:
+            alignment_score = sam_tag(fields, "AS")
+            suboptimal_score = sam_tag(fields, "XS")
+            if alignment_score is not None and suboptimal_score is not None and alignment_score <= suboptimal_score:
+                continue
+        key = dedup_key(dedup_mode, fields, category, alen, None)
+        if key is not None:
+            key_text = tuple(str(item) for item in key)
+            if key_text in seen:
+                continue
+            seen.add(key_text)
         grouped.setdefault((read_id, category), []).append(fields)
 
     rows: list[dict[str, object]] = []
@@ -132,6 +148,8 @@ def main() -> int:
     parser.add_argument("--min-aligned-length", type=int, default=60)
     parser.add_argument("--samtools-exe", default="samtools")
     parser.add_argument("--include-read-id", action="store_true")
+    parser.add_argument("--dedup-mode", choices=["none", "read_id", "coordinate", "fragment"], default="none")
+    parser.add_argument("--require-unique-best", action="store_true")
     args = parser.parse_args()
 
     categories = set(args.category or ["HIV1", "HIV2"])
@@ -151,6 +169,8 @@ def main() -> int:
                 args.min_aligned_length,
                 args.samtools_exe,
                 args.include_read_id,
+                args.dedup_mode,
+                args.require_unique_best,
             )
         )
     write_tsv(
