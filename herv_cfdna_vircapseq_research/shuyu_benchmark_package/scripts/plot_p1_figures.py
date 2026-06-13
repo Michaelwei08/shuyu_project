@@ -99,9 +99,9 @@ def figure1(path: Path) -> None:
     boxes = [
         ("Data inputs", "Targeted HTLV TCL FASTQ\nWGS HIV+/HL FASTQ", 60, 110),
         ("Manifest + QC", "prepare_shuyu_benchmark.py\nqc_shuyu_manifest.py", 300, 110),
-        ("Competitive reference", "HIV1/HIV2/HTLV1/HTLV2\nHERV/LINE1 decoys\nbwa index", 540, 110),
+        ("Competitive reference", "hg38 + RefSeq retroviruses\nHERV/LINE1 decoys\nbwa index", 540, 110),
         ("Alignment", "run_retro_pilot_alignment.py\nbwa mem | samtools sort\n--full-input --jobs", 780, 110),
-        ("Filtering + counting", "MAPQ >= 20\naligned length >= 60 bp\ndeduplicate read_id + category", 1020, 110),
+        ("Filtering + counting", "human MAPQ >= 60; viral >= 40\naligned length >= 60 bp\nunique-best + coordinate dedup", 1020, 110),
         ("Results + figures", "summarize_*.py\naudit_filtered_alignments.py\nplot_p1_figures.py", 1260, 110),
     ]
     lines = [
@@ -121,9 +121,9 @@ def figure1(path: Path) -> None:
             lines.append(f'<line x1="{x1}" y1="{y + 85}" x2="{x2}" y2="{y + 85}" stroke="#486581" stroke-width="2"/>')
             lines.append(f'<polygon points="{x2},{y + 85} {x2 - 12},{y + 78} {x2 - 12},{y + 92}" fill="#486581"/>')
     metrics = [
-        ("Targeted HTLV", "71 QC-pass samples; 67 strong HTLV1 positive; 0 HIV1/HIV2/HTLV2 off-target calls"),
-        ("Full WGS HIV/HL", "60 samples; 2/37 HIV-labeled WGS with single-fragment HIV1; 0/23 HL controls with HIV/HTLV"),
-        ("Audit rule", "No read sequence/quality in audit tables; report only compact alignment metadata"),
+        ("Targeted HTLV", "Full-input targeted sequencing; evaluate HTLV1 sensitivity after stringent human competition"),
+        ("Full WGS HIV/HL", "Full-input WGS; HIV-labeled cases test sensitivity and HL samples test false-positive suppression"),
+        ("Audit rule", "Review every nonzero exogenous-virus call using compact alignment metadata; do not export sequences or qualities"),
     ]
     y0 = 360
     for i, (title, body) in enumerate(metrics):
@@ -151,7 +151,7 @@ def figure2(rows: list[dict[str, object]], path: Path) -> None:
     lines = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
         '<rect width="100%" height="100%" fill="#fbfaf6"/>',
-        '<text x="600" y="36" text-anchor="middle" font-family="Georgia" font-size="28" fill="#1f2933">Figure 2. Deduplicated Viral/Retroelement Reads by Cohort</text>',
+        '<text x="600" y="36" text-anchor="middle" font-family="Georgia" font-size="28" fill="#1f2933">Figure 2. Coordinate-Deduplicated Alignments by Cohort</text>',
         '<text x="600" y="60" text-anchor="middle" font-family="Arial" font-size="13" fill="#52606d">Points are samples; translucent bars show cohort medians. Y-axis uses log10(count + 1) with count labels.</text>',
     ]
     for p, cohort in enumerate(cohorts):
@@ -179,7 +179,7 @@ def figure2(rows: list[dict[str, object]], path: Path) -> None:
                 py = y_log(val, max_value, plot_top, plot_h)
                 lines.append(f'<circle cx="{px:.1f}" cy="{py:.1f}" r="3.2" fill="{COLORS[cohort]}" opacity="0.52"/>')
             lines.append(f'<text x="{x}" y="{plot_top + plot_h + 22}" text-anchor="middle" font-family="Arial" font-size="13" fill="#334e68">{species}</text>')
-    lines.append(f'<text x="22" y="{height / 2:.1f}" text-anchor="middle" transform="rotate(-90 22 {height / 2:.1f})" font-family="Arial" font-size="14" fill="#334e68">Deduplicated read count</text>')
+    lines.append(f'<text x="22" y="{height / 2:.1f}" text-anchor="middle" transform="rotate(-90 22 {height / 2:.1f})" font-family="Arial" font-size="14" fill="#334e68">Coordinate-deduplicated alignment count</text>')
     lines.append("</svg>")
     save_svg(path, lines)
 

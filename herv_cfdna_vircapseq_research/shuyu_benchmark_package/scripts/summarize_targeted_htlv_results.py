@@ -117,7 +117,7 @@ def svg_bar_chart(rows: list[dict[str, object]], path: Path, limit: int) -> None
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
         '<rect width="100%" height="100%" fill="#fbfaf6"/>',
         '<text x="600" y="30" text-anchor="middle" font-family="Georgia" font-size="24" fill="#1f2933">Top HTLV1 Signals</text>',
-        '<text x="600" y="50" text-anchor="middle" font-family="Arial" font-size="12" fill="#52606d">Filtered read IDs after competitive HIV/HTLV/HERV/LINE1 alignment</text>',
+        '<text x="600" y="50" text-anchor="middle" font-family="Arial" font-size="12" fill="#52606d">Coordinate-deduplicated alignments after competitive human/retrovirus mapping</text>',
     ]
     for i, row in enumerate(top):
         y = top_margin + i * row_h
@@ -141,12 +141,12 @@ def write_report(path: Path, metrics: dict[str, object], audit_metrics: dict[str
         "# Targeted HTLV Full-Run Summary",
         "",
         f"- Samples analyzed: {metrics['samples']}",
-        f"- HTLV1 positive threshold: >= {threshold} filtered read IDs",
+        f"- HTLV1 positive threshold: >= {threshold} coordinate-deduplicated alignments",
         f"- HTLV1 positive: {metrics['htlv1_positive']}",
         f"- Low positive: {metrics['low_positive']}",
         f"- Zero/possible QC fail: {metrics['zero']}",
-        f"- Median HTLV1 filtered read IDs: {metrics['median_htlv1']}",
-        f"- Max HTLV1 filtered read IDs: {metrics['max_htlv1']}",
+        f"- Median HTLV1 coordinate-deduplicated alignments: {metrics['median_htlv1']}",
+        f"- Max HTLV1 coordinate-deduplicated alignments: {metrics['max_htlv1']}",
         f"- HIV1 nonzero samples: {metrics['hiv1_nonzero']}",
         f"- HIV2 nonzero samples: {metrics['hiv2_nonzero']}",
         f"- HTLV2 nonzero samples: {metrics['htlv2_nonzero']}",
