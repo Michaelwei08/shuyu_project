@@ -15,13 +15,17 @@ def read_table(path: Path, delimiter: str | None = None) -> list[dict[str, str]]
 def write_tsv(path: Path, rows: list[dict[str, object]], fieldnames: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t", lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
 
 def value(row: dict[str, str], column: str) -> int:
     return int(float(row.get(column, "") or 0))
+
+
+def rate_per_10k(numerator: int, denominator: int, decimals: int = 6) -> str:
+    return f"{numerator / denominator * 10000:.{decimals}f}" if denominator > 0 else "NA"
 
 
 def group_from_manifest(row: dict[str, str]) -> str:
@@ -48,8 +52,8 @@ def annotate_rows(counts: list[dict[str, str]], manifest: list[dict[str, str]]) 
     for row in counts:
         sample = row["sample"]
         meta = manifest_by_sample.get(sample, {})
-        line1 = max(value(row, "LINE1"), 1)
-        herv = max(value(row, "HERV"), 1)
+        line1 = value(row, "LINE1")
+        herv = value(row, "HERV")
         hiv_total = value(row, "HIV1") + value(row, "HIV2")
         htlv_total = value(row, "HTLV1") + value(row, "HTLV2")
         annotated: dict[str, object] = {
@@ -66,10 +70,10 @@ def annotate_rows(counts: list[dict[str, str]], manifest: list[dict[str, str]]) 
             "LINE1": value(row, "LINE1"),
             "HIV_total": hiv_total,
             "HTLV_total": htlv_total,
-            "HIV_per_LINE1_10k": f"{hiv_total / line1 * 10000:.6f}",
-            "HTLV_per_LINE1_10k": f"{htlv_total / line1 * 10000:.6f}",
-            "HERV_per_LINE1_10k": f"{value(row, 'HERV') / line1 * 10000:.3f}",
-            "HIV_per_HERV_10k": f"{hiv_total / herv * 10000:.6f}",
+            "HIV_per_LINE1_10k": rate_per_10k(hiv_total, line1),
+            "HTLV_per_LINE1_10k": rate_per_10k(htlv_total, line1),
+            "HERV_per_LINE1_10k": rate_per_10k(value(row, "HERV"), line1, decimals=3),
+            "HIV_per_HERV_10k": rate_per_10k(hiv_total, herv),
         }
         rows.append(annotated)
     return rows
