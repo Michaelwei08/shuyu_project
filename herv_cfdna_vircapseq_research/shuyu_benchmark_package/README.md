@@ -1,5 +1,9 @@
 # Shuyu HIV/HTLV/HERV Benchmark Package
 
+The final hg38-inclusive validation workflow is documented in
+[`docs/final_four_steps.md`](docs/final_four_steps.md). Its step-selectable remote driver is
+`scripts/run_p1_final_validation.sh`.
+
 ## Purpose
 
 Prepare the benchmark inputs for Shuyu's shared data without copying protected sequencing data into this workspace.
