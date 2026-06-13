@@ -15,7 +15,7 @@ def read_table(path: Path, delimiter: str | None = None) -> list[dict[str, str]]
 def write_tsv(path: Path, rows: list[dict[str, object]], fieldnames: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t", lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -33,15 +33,19 @@ def classify(htlv1: int, threshold: int) -> str:
     return "no_signal_or_qc_fail"
 
 
+def rate_per_10k(numerator: int, denominator: int) -> str:
+    return f"{numerator / denominator * 10000:.3f}" if denominator > 0 else "NA"
+
+
 def summarize_counts(rows: list[dict[str, str]], threshold: int) -> tuple[list[dict[str, object]], dict[str, object]]:
     out_rows: list[dict[str, object]] = []
     for row in rows:
         htlv1 = value(row, "HTLV1")
-        line1 = max(value(row, "LINE1"), 1)
-        herv = max(value(row, "HERV"), 1)
+        line1 = value(row, "LINE1")
+        herv = value(row, "HERV")
         out = dict(row)
-        out["HTLV1_per_LINE1_10k"] = f"{htlv1 / line1 * 10000:.3f}"
-        out["HTLV1_per_HERV_10k"] = f"{htlv1 / herv * 10000:.3f}"
+        out["HTLV1_per_LINE1_10k"] = rate_per_10k(htlv1, line1)
+        out["HTLV1_per_HERV_10k"] = rate_per_10k(htlv1, herv)
         out["call"] = classify(htlv1, threshold)
         out_rows.append(out)
 

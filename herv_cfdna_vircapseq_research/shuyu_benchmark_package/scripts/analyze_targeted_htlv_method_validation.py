@@ -19,7 +19,7 @@ def read_tsv(path: Path) -> list[dict[str, str]]:
 def write_tsv(path: Path, rows: list[dict[str, object]], fieldnames: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t", lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -199,23 +199,28 @@ def write_bar_svg(rows: list[dict[str, object]], path: Path, title: str, value_k
 def write_report(path: Path, merged: list[dict[str, object]], dedup_rows: list[dict[str, object]], background_rows: list[dict[str, object]], threshold: int) -> None:
     calls = {row["call"]: row["samples"] for row in call_distribution(merged)}
     htlv = next(row for row in dedup_rows if row["species"] == "HTLV1")
-    background_pass = all(int(row["pass_zero_background"]) for row in background_rows)
+    residuals = [
+        f"{row['species']}={row['total_post_dedup_counts']} across {row['samples_nonzero']} samples"
+        for row in background_rows
+        if int(row["total_post_dedup_counts"]) > 0
+    ]
+    residual_text = "; ".join(residuals) if residuals else "none"
     lines = [
         "# Targeted HTLV Method Validation",
         "",
         f"- Samples analyzed: {len(merged)}",
-        f"- Strong HTLV1 threshold: >= {threshold} post-dedup counts",
+        f"- Operational strong HTLV1 threshold: >= {threshold} coordinate-deduplicated alignments",
         f"- Strong positive: {calls.get('strong_positive', 0)}",
         f"- Low positive: {calls.get('low_positive', 0)}",
         f"- Zero/QC-fail: {calls.get('zero_or_qc_fail', 0)}",
         f"- Median HTLV1 post/pre dedup ratio: {htlv['median_post_pre_ratio']}",
         f"- HTLV1 fraction removed by coordinate dedup: {htlv['fraction_removed']}",
-        f"- Background species zero after filtering: {background_pass}",
+        f"- Residual non-target background: {residual_text}",
         "",
         "## Interpretation",
         "",
-        "The hg38+RefSeq competitive run retains targeted HTLV1 signal while suppressing HIV1/HIV2/HTLV2/HERV/LINE1 background.",
-        "Coordinate deduplication has a large effect, so post-dedup counts should be used for interpretation.",
+        "The hg38+RefSeq competitive run retains targeted HTLV1 signal while nearly eliminating exogenous-virus and retroelement background.",
+        "Coordinate deduplication has a large effect, so post-dedup counts should be used for interpretation; the threshold is analytical and not clinically validated.",
     ]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -240,6 +245,7 @@ def main() -> int:
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     write_tsv(args.output_dir / "targeted_htlv_top_samples.tsv", merged[: args.top_n], list(merged[0].keys()))
+    write_tsv(args.output_dir / "targeted_htlv_all_samples.tsv", merged, list(merged[0].keys()))
     write_tsv(args.output_dir / "targeted_htlv_dedup_summary.tsv", dedup_rows, list(dedup_rows[0].keys()))
     write_tsv(args.output_dir / "targeted_htlv_background_check.tsv", background_rows, list(background_rows[0].keys()))
     write_tsv(args.output_dir / "targeted_htlv_call_distribution.tsv", calls, ["call", "samples"])
