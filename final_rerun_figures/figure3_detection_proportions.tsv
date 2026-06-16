@@ -1,0 +1,42 @@
+cohort	cohort_label	species	detected_samples	total_samples	proportion	threshold
+targeted_htlv	Targeted HTLV TCL	HTLV1	70	71	0.9859154929577465	1
+targeted_htlv	Targeted HTLV TCL	HTLV2	0	71	0.0	1
+targeted_htlv	Targeted HTLV TCL	HIV1	0	71	0.0	1
+targeted_htlv	Targeted HTLV TCL	HIV2	0	71	0.0	1
+targeted_htlv	Targeted HTLV TCL	HERV	3	71	0.04225352112676056	1
+HIV_WGS	WGS HIV+ DLBCL/BL	HTLV1	0	37	0.0	1
+HIV_WGS	WGS HIV+ DLBCL/BL	HTLV2	0	37	0.0	1
+HIV_WGS	WGS HIV+ DLBCL/BL	HIV1	2	37	0.05405405405405406	1
+HIV_WGS	WGS HIV+ DLBCL/BL	HIV2	0	37	0.0	1
+HIV_WGS	WGS HIV+ DLBCL/BL	HERV	9	37	0.24324324324324326	1
+HL_control	WGS HL controls	HTLV1	0	23	0.0	1
+HL_control	WGS HL controls	HTLV2	0	23	0.0	1
+HL_control	WGS HL controls	HIV1	0	23	0.0	1
+HL_control	WGS HL controls	HIV2	0	23	0.0	1
+HL_control	WGS HL controls	HERV	8	23	0.34782608695652173	1
+
+• Subject: Updated HIV/HTLV benchmark using human-inclusive competitive alignment
+
+Hi Ash,
+
+Cc’ing Shuyu.
+
+I completed the rerun using a combined hg38 and retroviral reference, with stricter mapping filters and coordinate-
+based deduplication. The updated figures summarize the workflow and results.
+
+In the targeted HTLV cohort, 66/71 samples had strong HTLV1 signal, four had low signal, and one appeared to be a
+sequencing/QC failure. HIV1, HIV2, HTLV2, and LINE1 background was eliminated. Only three borderline HERV fragments
+remained at MAPQ 40, and all disappeared at MAPQ 60.
+
+For WGS, HIV1 signal was retained in 2/37 HIV-labelled samples and in 0/23 HL controls. Each positive sample contained
+only one high-quality HIV1 fragment with approximately 1.5–1.8% genome breadth, so I would describe these as single-
+fragment candidates rather than definitive detections. No HIV or HTLV signal was observed in the HL controls.
+
+Adding hg38 eliminated the previously ubiquitous HERV/LINE1 counts, indicating that most of those reads were better
+explained by human-genome mapping. Overall, the revised workflow provides substantially improved specificity while
+retaining strong targeted HTLV1 detection.
+
+The next useful benchmark will be the targeted HIV cohort when those data become available.
+
+Best,
+Michael
