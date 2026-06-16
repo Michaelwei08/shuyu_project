@@ -4,6 +4,17 @@ import re
 import subprocess
 from pathlib import Path
 
+UNMAPPED_FLAG = 0x4
+SECONDARY_FLAG = 0x100
+SUPPLEMENTARY_FLAG = 0x800
+
+
+def samtools_exclude_flags(exclude_secondary_supplementary: bool) -> str:
+    flags = UNMAPPED_FLAG
+    if exclude_secondary_supplementary:
+        flags |= SECONDARY_FLAG | SUPPLEMENTARY_FLAG
+    return str(flags)
+
 
 def parse_category_min_mapq(items: list[str]) -> dict[str, int]:
     thresholds: dict[str, int] = {}
@@ -116,6 +127,7 @@ def filtered_counts(
     dedup_mode: str,
     umi_regex: str | None,
     require_unique_best: bool,
+    exclude_secondary_supplementary: bool = False,
 ) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
     counts: dict[str, int] = {}
     record_counts: dict[str, int] = {}
@@ -123,7 +135,7 @@ def filtered_counts(
     seen: set[tuple[str, ...]] = set()
 
     proc = subprocess.Popen(
-        [samtools_exe, "view", "-F", "4", str(bam_path)],
+        [samtools_exe, "view", "-F", samtools_exclude_flags(exclude_secondary_supplementary), str(bam_path)],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -168,6 +180,10 @@ def filtered_counts(
         proc.stderr.close()
     return_code = proc.wait()
     if return_code != 0:
-        raise subprocess.CalledProcessError(return_code, [samtools_exe, "view", "-F", "4", str(bam_path)], stderr=stderr)
+        raise subprocess.CalledProcessError(
+            return_code,
+            [samtools_exe, "view", "-F", samtools_exclude_flags(exclude_secondary_supplementary), str(bam_path)],
+            stderr=stderr,
+        )
 
     return counts, record_counts, dedup_removed

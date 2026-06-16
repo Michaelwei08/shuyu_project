@@ -7,7 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from retro_alignment_filters import dedup_key, sam_tag
+from retro_alignment_filters import dedup_key, sam_tag, samtools_exclude_flags
 
 
 def read_table(path: Path, delimiter: str | None = None) -> list[dict[str, str]]:
@@ -64,8 +64,16 @@ def sam_records(
     samtools_exe: str,
     bam_path: Path,
     reference_ids: list[str],
+    exclude_secondary_supplementary: bool,
 ) -> list[list[str]]:
-    cmd = [samtools_exe, "view", "-F", "4", str(bam_path), *reference_ids]
+    cmd = [
+        samtools_exe,
+        "view",
+        "-F",
+        samtools_exclude_flags(exclude_secondary_supplementary),
+        str(bam_path),
+        *reference_ids,
+    ]
     result = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, check=True)
     return [line.split("\t") for line in result.stdout.splitlines() if line]
 
@@ -81,6 +89,7 @@ def audit_sample(
     include_read_id: bool,
     dedup_mode: str,
     require_unique_best: bool,
+    exclude_secondary_supplementary: bool,
 ) -> list[dict[str, object]]:
     bam_path = bam_dir / f"{sample}.retrovirus.bam"
     if not bam_path.exists():
@@ -88,7 +97,7 @@ def audit_sample(
     refs = [ref for ref, category in reference_map.items() if category in categories]
     grouped: dict[tuple[str, str], list[list[str]]] = {}
     seen: set[tuple[str, ...]] = set()
-    for fields in sam_records(samtools_exe, bam_path, refs):
+    for fields in sam_records(samtools_exe, bam_path, refs, exclude_secondary_supplementary):
         if len(fields) < 11:
             continue
         read_id, ref, mapq_text, cigar = fields[0], fields[2], fields[4], fields[5]
@@ -150,6 +159,11 @@ def main() -> int:
     parser.add_argument("--include-read-id", action="store_true")
     parser.add_argument("--dedup-mode", choices=["none", "read_id", "coordinate", "fragment"], default="none")
     parser.add_argument("--require-unique-best", action="store_true")
+    parser.add_argument(
+        "--exclude-secondary-supplementary",
+        action="store_true",
+        help="Drop SAM secondary (0x100) and supplementary (0x800) alignments before auditing.",
+    )
     args = parser.parse_args()
 
     categories = set(args.category or ["HIV1", "HIV2"])
@@ -171,6 +185,7 @@ def main() -> int:
                 args.include_read_id,
                 args.dedup_mode,
                 args.require_unique_best,
+                args.exclude_secondary_supplementary,
             )
         )
     write_tsv(

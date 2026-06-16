@@ -173,6 +173,7 @@ def process_sample(
         args.dedup_mode,
         args.umi_regex,
         args.require_unique_best,
+        args.exclude_secondary_supplementary,
     )
     raw_row = {"sample": sample, **{category: raw.get(category, 0) for category in categories}}
     filtered_row = {"sample": sample, **{category: filt.get(category, 0) for category in categories}}
@@ -195,6 +196,7 @@ def process_sample(
         "dedup_mode": args.dedup_mode,
         "umi_regex": args.umi_regex or "",
         "require_unique_best": args.require_unique_best,
+        "exclude_secondary_supplementary": args.exclude_secondary_supplementary,
         "sort_tmp_dir": str(args.sort_tmp_dir or ""),
         "keep_unmapped": args.keep_unmapped,
     }
@@ -223,12 +225,16 @@ def main() -> int:
     parser.add_argument("--dedup-mode", choices=["none", "read_id", "coordinate", "fragment", "umi"], default="read_id")
     parser.add_argument("--umi-regex", help="Regex used with --dedup-mode umi.")
     parser.add_argument("--require-unique-best", action="store_true", help="Drop records with AS <= XS when both tags exist.")
+    parser.add_argument("--exclude-secondary-supplementary", action="store_true", help="Drop SAM secondary/supplementary alignments before filtering.")
+    parser.add_argument("--result-prefix", default="", help="Prefix for aggregate result files, e.g. primary_only_.")
     parser.add_argument("--force-subsample", action="store_true")
     args = parser.parse_args()
     if args.jobs < 1:
         raise SystemExit("--jobs must be >= 1")
     if args.dedup_mode == "umi" and not args.umi_regex:
         raise SystemExit("--dedup-mode umi requires --umi-regex")
+    if any(char in args.result_prefix for char in "\\/:"):
+        raise SystemExit("--result-prefix must be a filename prefix, not a path")
 
     rows = select_rows(read_csv(args.manifest), args.sample_id)
     reference_map = load_reference_map(args.reference_map)
@@ -275,12 +281,13 @@ def main() -> int:
     dedup_removed_rows = [item[4] for item in ordered]
     run_rows = [item[5] for item in ordered]
 
-    write_csv(result_dir / "raw_idxstats_category_counts.tsv", raw_rows, ["sample", *categories])
-    write_csv(result_dir / "filtered_record_category_counts.tsv", filtered_record_rows, ["sample", *categories])
-    write_csv(result_dir / "filtered_category_counts.tsv", filtered_rows, ["sample", *categories])
-    write_csv(result_dir / "dedup_removed_category_counts.tsv", dedup_removed_rows, ["sample", *categories])
-    write_csv(result_dir / "run_manifest.tsv", run_rows, list(run_rows[0].keys()) if run_rows else ["sample"])
-    print(f"Wrote {result_dir / 'filtered_category_counts.tsv'}")
+    prefix = args.result_prefix
+    write_csv(result_dir / f"{prefix}raw_idxstats_category_counts.tsv", raw_rows, ["sample", *categories])
+    write_csv(result_dir / f"{prefix}filtered_record_category_counts.tsv", filtered_record_rows, ["sample", *categories])
+    write_csv(result_dir / f"{prefix}filtered_category_counts.tsv", filtered_rows, ["sample", *categories])
+    write_csv(result_dir / f"{prefix}dedup_removed_category_counts.tsv", dedup_removed_rows, ["sample", *categories])
+    write_csv(result_dir / f"{prefix}run_manifest.tsv", run_rows, list(run_rows[0].keys()) if run_rows else ["sample"])
+    print(f"Wrote {result_dir / f'{prefix}filtered_category_counts.tsv'}")
     return 0
 
 

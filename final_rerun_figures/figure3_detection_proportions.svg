@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="620" viewBox="0 0 1100 620">
+<rect width="100%" height="100%" fill="#fbfaf6"/>
+<text x="550" y="36" text-anchor="middle" font-family="Georgia" font-size="28" fill="#1f2933">Figure 3. Detection Proportions by Cohort</text>
+<text x="550" y="60" text-anchor="middle" font-family="Arial" font-size="13" fill="#52606d">Detection defined as deduplicated read count &gt; 0 unless a higher threshold is requested.</text>
+<line x1="90" y1="525" x2="1060" y2="525" stroke="#9fb3c8"/>
+<line x1="90" y1="80" x2="90" y2="525" stroke="#9fb3c8"/>
+<line x1="85" y1="525.0" x2="1060" y2="525.0" stroke="#e2e8f0"/>
+<text x="78" y="529.0" text-anchor="end" font-family="Arial" font-size="11" fill="#52606d">0%</text>
+<line x1="85" y1="413.8" x2="1060" y2="413.8" stroke="#e2e8f0"/>
+<text x="78" y="417.8" text-anchor="end" font-family="Arial" font-size="11" fill="#52606d">25%</text>
+<line x1="85" y1="302.5" x2="1060" y2="302.5" stroke="#e2e8f0"/>
+<text x="78" y="306.5" text-anchor="end" font-family="Arial" font-size="11" fill="#52606d">50%</text>
+<line x1="85" y1="191.2" x2="1060" y2="191.2" stroke="#e2e8f0"/>
+<text x="78" y="195.2" text-anchor="end" font-family="Arial" font-size="11" fill="#52606d">75%</text>
+<line x1="85" y1="80.0" x2="1060" y2="80.0" stroke="#e2e8f0"/>
+<text x="78" y="84.0" text-anchor="end" font-family="Arial" font-size="11" fill="#52606d">100%</text>
+<text x="187.0" y="553" text-anchor="middle" font-family="Arial" font-size="13" fill="#334e68">HTLV1</text>
+<rect x="128.8" y="86.3" width="35.8" height="438.7" fill="#b45309" rx="3"/>
+<text x="146.7" y="81.3" text-anchor="middle" font-family="Arial" font-size="10" fill="#102a43">99%</text>
+<rect x="167.6" y="525.0" width="35.8" height="0.0" fill="#c2410c" rx="3"/>
+<rect x="206.4" y="525.0" width="35.8" height="0.0" fill="#2563eb" rx="3"/>
+<text x="381.0" y="553" text-anchor="middle" font-family="Arial" font-size="13" fill="#334e68">HTLV2</text>
+<rect x="322.8" y="525.0" width="35.8" height="0.0" fill="#b45309" rx="3"/>
+<rect x="361.6" y="525.0" width="35.8" height="0.0" fill="#c2410c" rx="3"/>
+<rect x="400.4" y="525.0" width="35.8" height="0.0" fill="#2563eb" rx="3"/>
+<text x="575.0" y="553" text-anchor="middle" font-family="Arial" font-size="13" fill="#334e68">HIV1</text>
+<rect x="516.8" y="525.0" width="35.8" height="0.0" fill="#b45309" rx="3"/>
+<rect x="555.6" y="500.9" width="35.8" height="24.1" fill="#c2410c" rx="3"/>
+<text x="573.5" y="495.9" text-anchor="middle" font-family="Arial" font-size="10" fill="#102a43">5%</text>
+<rect x="594.4" y="525.0" width="35.8" height="0.0" fill="#2563eb" rx="3"/>
+<text x="769.0" y="553" text-anchor="middle" font-family="Arial" font-size="13" fill="#334e68">HIV2</text>
+<rect x="710.8" y="525.0" width="35.8" height="0.0" fill="#b45309" rx="3"/>
+<rect x="749.6" y="525.0" width="35.8" height="0.0" fill="#c2410c" rx="3"/>
+<rect x="788.4" y="525.0" width="35.8" height="0.0" fill="#2563eb" rx="3"/>
+<text x="963.0" y="553" text-anchor="middle" font-family="Arial" font-size="13" fill="#334e68">HERV</text>
+<rect x="904.8" y="506.2" width="35.8" height="18.8" fill="#b45309" rx="3"/>
+<text x="922.7" y="501.2" text-anchor="middle" font-family="Arial" font-size="10" fill="#102a43">4%</text>
+<rect x="943.6" y="416.8" width="35.8" height="108.2" fill="#c2410c" rx="3"/>
+<text x="961.5" y="411.8" text-anchor="middle" font-family="Arial" font-size="10" fill="#102a43">24%</text>
+<rect x="982.4" y="370.2" width="35.8" height="154.8" fill="#2563eb" rx="3"/>
+<text x="1000.3" y="365.2" text-anchor="middle" font-family="Arial" font-size="10" fill="#102a43">35%</text>
+<rect x="720" y="84" width="12" height="12" fill="#b45309"/>
+<text x="738" y="95" font-family="Arial" font-size="12" fill="#334e68">Targeted HTLV TCL</text>
+<rect x="845" y="84" width="12" height="12" fill="#c2410c"/>
+<text x="863" y="95" font-family="Arial" font-size="12" fill="#334e68">WGS HIV+ DLBCL/BL</text>
+<rect x="970" y="84" width="12" height="12" fill="#2563eb"/>
+<text x="988" y="95" font-family="Arial" font-size="12" fill="#334e68">WGS HL controls</text>
+<text x="24" y="302.5" text-anchor="middle" transform="rotate(-90 24 302.5)" font-family="Arial" font-size="14" fill="#334e68">Proportion detected</text>
+</svg>
