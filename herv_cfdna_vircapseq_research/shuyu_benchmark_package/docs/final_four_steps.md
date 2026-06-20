@@ -68,7 +68,47 @@ The pair-summary TSV contains both pre-mask and post-mask exact-kmer similarity:
 HIV/HTLV/HERV question unless Shuyu provides the matching VirCAPP masking method or masked
 HIV/HTLV/HERV reference files.
 
-## 4. Masked Full Rerun
+## 4. Shuyu Masked Viral Panel Follow-Up
+
+Shuyu provided the panel path:
+
+```text
+/drive3/shuyu/references/HIV1_masked/viral_sel_v1_MASKED_HIV1masked.fa
+```
+
+First export the BAM paths from the current hg38 rerun so Shuyu can inspect them in IGV:
+
+```bash
+bash herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_shuyu_masked_panel_validation.sh export-current-igv
+```
+
+Key outputs:
+
+- `shuyu_benchmark_package/output/igv_bam_paths/current_primary_only_all_bams.tsv`
+- `shuyu_benchmark_package/output/igv_bam_paths/current_primary_only_nonzero_exogenous_bams.tsv`
+
+To test Shuyu's 180-virus masked panel directly, build a new reference containing hg38/HERV/LINE1
+from the current base reference plus Shuyu's masked viral panel:
+
+```bash
+bash herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_shuyu_masked_panel_validation.sh build-reference
+```
+
+Then rerun full targeted HTLV and WGS with secondary/supplementary alignments excluded:
+
+```bash
+export JOBS=8 THREADS=8 SORT_THREADS=2
+bash herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_shuyu_masked_panel_validation.sh rerun
+bash herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_shuyu_masked_panel_validation.sh summarize
+```
+
+The Shuyu-panel rerun outputs are written to:
+
+- `/drive3/cpwei/shuyu_runs/targeted_htlv_hg38_shuyu_masked_panel_primary_only`
+- `/drive3/cpwei/shuyu_runs/wgs_hiv_hl_hg38_shuyu_masked_panel_primary_only`
+- `shuyu_benchmark_package/output/igv_bam_paths/shuyu_panel_all_bams.tsv`
+
+## 5. Exact-Kmer Masked Full Rerun
 
 After `mask-reference` finishes, rerun targeted HTLV and HIV/HL WGS against the masked reference:
 
@@ -86,7 +126,7 @@ Key outputs:
 This rerun also excludes secondary and supplementary alignments, applies human MAPQ >=60,
 viral MAPQ >=40, aligned length >=60 bp, unique-best filtering, and coordinate deduplication.
 
-## 5. Old-versus-New Comparison
+## 6. Old-versus-New Comparison
 
 The defaults use the existing viral-only and hg38-inclusive run directories. Override
 `OLDHTLV`, `OLDWGS`, `FULLHTLV`, or `WGSFULL` if the paths differ.
