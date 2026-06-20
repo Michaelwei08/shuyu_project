@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import argparse
 import csv
 import subprocess
@@ -20,11 +19,7 @@ def write_csv(path: Path, rows: list[dict[str, object]], fieldnames: list[str]) 
         writer.writerows(rows)
 
 def load_reference_map(path: Path) -> dict[str, str]:
-    rows = read_csv(path)
-    mapping: dict[str, str] = {}
-    for row in rows:
-        mapping[row["reference_id"]] = row["category"]
-    return mapping
+    return {row["reference_id"]: row["category"] for row in read_csv(path)}
 
 def run(cmd: list[str], log_path: Path | None = None, stdout_path: Path | None = None) -> None:
     log_handle = log_path.open("w", encoding="utf-8") if log_path else None
@@ -174,6 +169,7 @@ def process_sample(
         args.umi_regex,
         args.require_unique_best,
         args.exclude_secondary_supplementary,
+        args.filtered_reference_ids,
     )
     raw_row = {"sample": sample, **{category: raw.get(category, 0) for category in categories}}
     filtered_row = {"sample": sample, **{category: filt.get(category, 0) for category in categories}}
@@ -197,6 +193,7 @@ def process_sample(
         "umi_regex": args.umi_regex or "",
         "require_unique_best": args.require_unique_best,
         "exclude_secondary_supplementary": args.exclude_secondary_supplementary,
+        "filter_categories": args.filter_category_text,
         "sort_tmp_dir": str(args.sort_tmp_dir or ""),
         "keep_unmapped": args.keep_unmapped,
     }
@@ -226,6 +223,7 @@ def main() -> int:
     parser.add_argument("--umi-regex", help="Regex used with --dedup-mode umi.")
     parser.add_argument("--require-unique-best", action="store_true", help="Drop records with AS <= XS when both tags exist.")
     parser.add_argument("--exclude-secondary-supplementary", action="store_true", help="Drop SAM secondary/supplementary alignments before filtering.")
+    parser.add_argument("--filter-category", action="append", default=[], help="Only scan alignments on references in this category. Can be repeated.")
     parser.add_argument("--result-prefix", default="", help="Prefix for aggregate result files, e.g. primary_only_.")
     parser.add_argument("--force-subsample", action="store_true")
     args = parser.parse_args()
@@ -243,7 +241,14 @@ def main() -> int:
     unknown_categories = sorted(set(args.category_min_mapq_map) - set(categories))
     if unknown_categories:
         raise SystemExit(f"--category-min-mapq uses categories not found in reference map: {', '.join(unknown_categories)}")
+    unknown_filter_categories = sorted(set(args.filter_category) - set(categories))
+    if unknown_filter_categories:
+        raise SystemExit(f"--filter-category uses categories not found in reference map: {', '.join(unknown_filter_categories)}")
+    args.filtered_reference_ids = None
+    if args.filter_category:
+        args.filtered_reference_ids = {ref for ref, category in reference_map.items() if category in set(args.filter_category)}
     args.category_min_mapq_text = ",".join(f"{category}:{args.category_min_mapq_map[category]}" for category in sorted(args.category_min_mapq_map))
+    args.filter_category_text = ",".join(sorted(args.filter_category))
 
     fastq_dir = args.work_dir / ("fastq_full_inputs" if args.full_input else f"fastq_{args.pairs}")
     bam_dir = args.work_dir / "bam"
