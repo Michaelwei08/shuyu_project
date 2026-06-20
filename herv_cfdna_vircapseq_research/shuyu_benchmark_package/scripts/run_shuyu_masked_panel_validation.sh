@@ -21,6 +21,7 @@ FULLHTLV_CURRENT="${FULLHTLV_CURRENT:-/drive3/cpwei/shuyu_runs/targeted_htlv_hg3
 WGSFULL_CURRENT="${WGSFULL_CURRENT:-/drive3/cpwei/shuyu_runs/wgs_hiv_hl_hg38_refseq_mapq_human60_viral40_coord}"
 FULLHTLV_PANEL="${FULLHTLV_PANEL:-/drive3/cpwei/shuyu_runs/targeted_htlv_hg38_shuyu_masked_panel_primary_only}"
 WGSFULL_PANEL="${WGSFULL_PANEL:-/drive3/cpwei/shuyu_runs/wgs_hiv_hl_hg38_shuyu_masked_panel_primary_only}"
+PANEL_FILTER_ARGS=(--filter-category HERV --filter-category HIV1 --filter-category HIV2 --filter-category HTLV1 --filter-category HTLV2 --filter-category LINE1 --filter-category OTHER_VIRAL)
 
 require_file() {
   [[ -f "$1" ]] || { echo "Required file not found: $1" >&2; exit 2; }
@@ -45,7 +46,8 @@ run_alignment() {
     --min-aligned-length 60 \
     --dedup-mode coordinate \
     --require-unique-best \
-    --exclude-secondary-supplementary
+    --exclude-secondary-supplementary \
+    "${PANEL_FILTER_ARGS[@]}"
 }
 
 step_build_reference() {

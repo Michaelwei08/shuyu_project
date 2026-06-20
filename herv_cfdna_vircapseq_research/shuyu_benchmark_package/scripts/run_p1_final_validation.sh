@@ -22,6 +22,7 @@ MASKED_REFERENCE_FASTA="${MASKED_REFERENCE_FASTA:-$MASKDIR/hg38_plus_retro.refse
 MASKED_REFERENCE_MAP="${MASKED_REFERENCE_MAP:-$MASKDIR/hg38_plus_retro.refseq.masked_hiv1_htlv1_vs_herv.k${MASK_KMER}.reference_map.csv}"
 FULLHTLV_MASKED="${FULLHTLV_MASKED:-/drive3/cpwei/shuyu_runs/targeted_htlv_hg38_refseq_masked_k${MASK_KMER}_mapq_human60_viral40_coord}"
 WGSFULL_MASKED="${WGSFULL_MASKED:-/drive3/cpwei/shuyu_runs/wgs_hiv_hl_hg38_refseq_masked_k${MASK_KMER}_mapq_human60_viral40_coord}"
+RETRO_FILTER_ARGS=(--filter-category HERV --filter-category HIV1 --filter-category HIV2 --filter-category HTLV1 --filter-category HTLV2 --filter-category LINE1)
 
 require_file() {
   [[ -f "$1" ]] || { echo "Required file not found: $1" >&2; exit 2; }
@@ -59,7 +60,8 @@ step_targeted_hiv() {
     --category-min-mapq HUMAN:60 \
     --min-aligned-length 60 \
     --dedup-mode coordinate \
-    --require-unique-best
+    --require-unique-best \
+    "${RETRO_FILTER_ARGS[@]}"
 
 }
 
@@ -129,6 +131,7 @@ step_primary_only() {
     --dedup-mode coordinate \
     --require-unique-best \
     --exclude-secondary-supplementary \
+    "${RETRO_FILTER_ARGS[@]}" \
     --result-prefix primary_only_
 
   python "$SCRIPTS/run_retro_pilot_alignment.py" \
@@ -148,6 +151,7 @@ step_primary_only() {
     --dedup-mode coordinate \
     --require-unique-best \
     --exclude-secondary-supplementary \
+    "${RETRO_FILTER_ARGS[@]}" \
     --result-prefix primary_only_
 
   python "$SCRIPTS/summarize_targeted_htlv_results.py" \
@@ -179,7 +183,8 @@ step_primary_only() {
     --min-aligned-length 60 \
     --dedup-mode coordinate \
     --require-unique-best \
-    --exclude-secondary-supplementary
+    --exclude-secondary-supplementary \
+    "${RETRO_FILTER_ARGS[@]}"
 }
 
 step_mask_reference() {
@@ -227,7 +232,8 @@ step_masked_rerun() {
     --min-aligned-length 60 \
     --dedup-mode coordinate \
     --require-unique-best \
-    --exclude-secondary-supplementary
+    --exclude-secondary-supplementary \
+    "${RETRO_FILTER_ARGS[@]}"
 
   python "$SCRIPTS/run_retro_pilot_alignment.py" \
     --manifest "$OUT/wgs_complete_manifest.csv" \

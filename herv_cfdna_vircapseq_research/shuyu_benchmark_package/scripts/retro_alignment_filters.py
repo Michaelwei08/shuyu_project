@@ -128,14 +128,19 @@ def filtered_counts(
     umi_regex: str | None,
     require_unique_best: bool,
     exclude_secondary_supplementary: bool = False,
+    target_reference_ids: set[str] | None = None,
 ) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
     counts: dict[str, int] = {}
     record_counts: dict[str, int] = {}
     dedup_removed: dict[str, int] = {}
     seen: set[tuple[str, ...]] = set()
 
+    cmd = [samtools_exe, "view", "-F", samtools_exclude_flags(exclude_secondary_supplementary), str(bam_path)]
+    if target_reference_ids:
+        cmd.extend(sorted(target_reference_ids))
+
     proc = subprocess.Popen(
-        [samtools_exe, "view", "-F", samtools_exclude_flags(exclude_secondary_supplementary), str(bam_path)],
+        cmd,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -182,7 +187,7 @@ def filtered_counts(
     if return_code != 0:
         raise subprocess.CalledProcessError(
             return_code,
-            [samtools_exe, "view", "-F", samtools_exclude_flags(exclude_secondary_supplementary), str(bam_path)],
+            cmd,
             stderr=stderr,
         )
 
