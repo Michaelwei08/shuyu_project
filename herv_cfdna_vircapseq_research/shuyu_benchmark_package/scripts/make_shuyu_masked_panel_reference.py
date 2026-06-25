@@ -9,6 +9,17 @@ from pathlib import Path
 
 DEFAULT_BASE_CATEGORIES = ["HUMAN", "HERV", "LINE1"]
 
+RETRO_ACCESSION_CATEGORIES = {
+    "K03455.1": "HIV1",
+    "NC_001802.1": "HIV1",
+    "M15390.1": "HIV2",
+    "NC_001722.1": "HIV2",
+    "J02029.1": "HTLV1",
+    "NC_001436.1": "HTLV1",
+    "M10060.1": "HTLV2",
+    "NC_001488.1": "HTLV2",
+}
+
 
 def parse_header_id(header: str) -> str:
     return header[1:].strip().split()[0]
@@ -47,6 +58,9 @@ def load_reference_map(path: Path) -> dict[str, dict[str, str]]:
 def infer_panel_category(header: str) -> str:
     text = re.sub(r"[^A-Z0-9]+", " ", header.upper())
     compact = text.replace(" ", "")
+    for accession, category in RETRO_ACCESSION_CATEGORIES.items():
+        if re.sub(r"[^A-Z0-9]+", "", accession.upper()) in compact:
+            return category
     if "HIV1" in compact or "HIV 1" in text or "IMMUNODEFICIENCY VIRUS 1" in text:
         return "HIV1"
     if "HIV2" in compact or "HIV 2" in text or "IMMUNODEFICIENCY VIRUS 2" in text:
