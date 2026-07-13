@@ -171,3 +171,8 @@ final_rerun_figures/*.csv
 !**/configs/**
 !**/README.md
 !**/TASKS.md
+
+# Re-assert bytecode-cache ignores last: the scripts/ allowlist above otherwise
+# re-includes scripts/__pycache__/*.pyc (how the .pyc caches got tracked before).
+**/__pycache__/
+*.py[cod]
