@@ -57,15 +57,23 @@ def harmonize(exposure_csv: Path, outcome_csv: Path, output_csv: Path) -> None:
             status = "keep"
             note = "alleles aligned"
             beta_outcome = float(out["beta_outcome"])
-            if (ea_exp, oa_exp) in PALINDROMIC:
-                status = "review"
-                note = "palindromic allele pair; verify allele frequencies before final MR"
+            is_palindromic = (ea_exp, oa_exp) in PALINDROMIC
             if ea_exp == oa_out and oa_exp == ea_out:
                 beta_outcome *= -1
                 note = "outcome effect flipped to exposure effect allele"
             elif not (ea_exp == ea_out and oa_exp == oa_out):
                 status = "drop"
                 note = "allele mismatch"
+            if is_palindromic and status != "drop":
+                # Strand for palindromic SNPs cannot be resolved from allele
+                # identity alone, so any flip applied above is provisional.
+                # Flag for manual allele-frequency review and keep this warning
+                # instead of letting the flip note overwrite it.
+                status = "review"
+                note = (
+                    "palindromic allele pair; verify allele frequencies before "
+                    f"final MR ({note})"
+                )
             writer.writerow(
                 {
                     "variant_id": variant_id,

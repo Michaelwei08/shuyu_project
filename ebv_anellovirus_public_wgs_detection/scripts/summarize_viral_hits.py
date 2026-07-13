@@ -24,6 +24,7 @@ def truthy(value: str) -> bool:
 def summarize(path: Path, min_mapq: float, min_length: int) -> dict[str, Counter[str]]:
     counts: dict[str, Counter[str]] = defaultdict(Counter)
     seen_reads: set[tuple[str, str, str]] = set()
+    seen_total_reads: set[tuple[str, str]] = set()
     with path.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
         missing = REQUIRED_COLUMNS - set(reader.fieldnames or [])
@@ -44,7 +45,13 @@ def summarize(path: Path, min_mapq: float, min_length: int) -> dict[str, Counter
             if key in seen_reads:
                 continue
             seen_reads.add(key)
-            counts[sample_id]["total_viral_reads"] += 1
+            # Count each distinct read once toward the total even if it aligns
+            # to more than one virus; the per-virus bins below still attribute
+            # the read to each virus it hits.
+            total_key = (sample_id, read_id)
+            if total_key not in seen_total_reads:
+                seen_total_reads.add(total_key)
+                counts[sample_id]["total_viral_reads"] += 1
             if virus.lower() in {"ebv", "epstein-barr virus", "human herpesvirus 4", "hhv-4"}:
                 counts[sample_id]["ebv_reads"] += 1
             elif family == "Herpesviridae":
