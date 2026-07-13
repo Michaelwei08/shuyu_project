@@ -7,7 +7,7 @@ Run from the remote repository after activating `retro_qc`.
 When Shuyu provides the paired FASTQs:
 
 ```bash
-export TARGETED_HIV_DIR=/path/to/data
+export TARGETED_HIV_DIR=/path/to/controlled_data/hiv_targeted
 export JOBS=8 THREADS=8 SORT_THREADS=2
 bash herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_p1_final_validation.sh targeted-hiv
 ```
@@ -73,7 +73,7 @@ HIV/HTLV/HERV reference files.
 Shuyu provided the panel path:
 
 ```text
-/path/to/data
+/path/to/refs/HIV1_masked/viral_sel_v1_MASKED_HIV1masked.fa
 ```
 
 First export the BAM paths from the current hg38 rerun so Shuyu can inspect them in IGV:
@@ -104,8 +104,8 @@ bash herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_shuyu_mas
 
 The Shuyu-panel rerun outputs are written to:
 
-- `/path/to/data`
-- `/path/to/data`
+- `/path/to/runs/targeted_htlv_hg38_shuyu_masked_panel_primary_only`
+- `/path/to/runs/wgs_hiv_hl_hg38_shuyu_masked_panel_primary_only`
 - `shuyu_benchmark_package/output/igv_bam_paths/shuyu_panel_all_bams.tsv`
 
 ## 5. Exact-Kmer Masked Full Rerun

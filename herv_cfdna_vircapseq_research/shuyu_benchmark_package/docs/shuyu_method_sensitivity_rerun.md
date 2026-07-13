@@ -7,7 +7,7 @@ This rerun is designed to test whether HIV/HTLV calls are stable and whether ubi
 Current isolate panel:
 
 ```bash
-REF_CURRENT=/path/to/data
+REF_CURRENT=/path/to/runs/retro_reference_current
 mkdir -p "$REF_CURRENT/ref"
 
 python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/make_retro_competitive_reference.py \
@@ -21,7 +21,7 @@ python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/make_retro_
 RefSeq panel using Shuyu's requested `NC_*` accessions:
 
 ```bash
-REF_REFSEQ=/path/to/data
+REF_REFSEQ=/path/to/runs/retro_reference_refseq
 mkdir -p "$REF_REFSEQ/ref"
 
 python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/make_retro_competitive_reference.py \
@@ -36,7 +36,7 @@ Full human-plus-virus competitive reference, if an hg38 FASTA is available:
 
 ```bash
 HG38=/path/to/hg38.fa
-REF_HG38=/path/to/data
+REF_HG38=/path/to/runs/retro_reference_hg38_refseq
 mkdir -p "$REF_HG38/ref"
 
 python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/make_retro_competitive_reference.py \
@@ -53,8 +53,8 @@ python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/make_retro_
 Example targeted HTLV rerun with stricter viral MAPQ and coordinate deduplication:
 
 ```bash
-RUN=/path/to/data
-SORTTMP=/path/to/data
+RUN=/path/to/runs/targeted_htlv_refseq_mapq40_coord_dedup
+SORTTMP=/path/to/tmp/samtools_sort
 
 python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_retro_pilot_alignment.py \
   --manifest herv_cfdna_vircapseq_research/shuyu_benchmark_package/output/targeted_htlv_complete_manifest.csv \
@@ -76,8 +76,8 @@ python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_retro_p
 Example hg38-plus-virus run with category-specific MAPQ thresholds:
 
 ```bash
-RUN=/path/to/data
-SORTTMP=/path/to/data
+RUN=/path/to/runs/wgs_hg38_refseq_mapq_human60_viral40
+SORTTMP=/path/to/tmp/samtools_sort
 
 python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_retro_pilot_alignment.py \
   --manifest herv_cfdna_vircapseq_research/shuyu_benchmark_package/output/wgs_complete_manifest.csv \

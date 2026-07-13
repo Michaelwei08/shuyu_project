@@ -5,8 +5,8 @@ These commands assume the `retro_qc` conda environment is active and that `bwa`,
 ## 1. Build Competitive HIV/HTLV/HERV/LINE1 Reference
 
 ```bash
-cd /path/to/work
-WORK=/path/to/work
+cd /path/to/shuyu_project
+WORK=/path/to/shuyu_project/local_work/retro_competitive
 mkdir -p "$WORK/ref"
 
 python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/make_retro_competitive_reference.py \
@@ -32,9 +32,9 @@ If better local HERV/LINE1 consensus FASTAs exist, append them with repeated `--
 ## 2. Re-run 7-Sample Pilot With Competitive Reference
 
 ```bash
-cd /path/to/work
-REFWORK=/path/to/work
-PILOTWORK=/path/to/work
+cd /path/to/shuyu_project
+REFWORK=/path/to/shuyu_project/local_work/retro_competitive
+PILOTWORK=/path/to/shuyu_project/local_work/shuyu_pilot7_competitive
 
 python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_retro_pilot_alignment.py \
   --manifest herv_cfdna_vircapseq_research/shuyu_benchmark_package/output/pilot_manifest.csv \
@@ -60,17 +60,17 @@ Expected gate:
 Run 5 million pairs for one HIV WGS and one HL WGS control:
 
 ```bash
-cd /path/to/work
-REFWORK=/path/to/work
-WGSWORK=/path/to/work
+cd /path/to/shuyu_project
+REFWORK=/path/to/shuyu_project/local_work/retro_competitive
+WGSWORK=/path/to/shuyu_project/local_work/shuyu_wgs_5m_competitive
 
 python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_retro_pilot_alignment.py \
   --manifest herv_cfdna_vircapseq_research/shuyu_benchmark_package/output/sample_manifest.csv \
   --work-dir "$WGSWORK" \
   --reference-fasta "$REFWORK/ref/retro_competitive.fa" \
   --reference-map "$REFWORK/ref/retro_competitive_reference_map.csv" \
-  --sample-id wgs_60samples_hiv_hl_HIV<ID> \
-  --sample-id wgs_60samples_hiv_hl_HL<ID> \
+  --sample-id <SAMPLE_ID_1> \
+  --sample-id <SAMPLE_ID_2> \
   --pairs 5000000 \
   --threads 8 \
   --min-mapq 20 \
@@ -98,10 +98,10 @@ Proceed to full targeted HTLV first if:
 Only run complete targeted FASTQ pairs. This uses original FASTQs directly and does not copy/subsample reads:
 
 ```bash
-cd /path/to/work
-REFWORK=/path/to/work
-FULLHTLV=/path/to/data
-SORTTMP=/path/to/data
+cd /path/to/shuyu_project
+REFWORK=/path/to/shuyu_project/local_work/retro_competitive
+FULLHTLV=/path/to/runs/targeted_htlv_full_competitive
+SORTTMP=/path/to/tmp/samtools_sort
 mkdir -p "$FULLHTLV" "$SORTTMP"
 
 python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_retro_pilot_alignment.py \
@@ -128,10 +128,10 @@ By default, this stores only mapped reads in the BAMs. Use `--keep-unmapped` onl
 Monitor progress from another terminal:
 
 ```bash
-FULLHTLV=/path/to/data
+FULLHTLV=/path/to/runs/targeted_htlv_full_competitive
 ls "$FULLHTLV/results"/*.idxstats.tsv 2>/dev/null | wc -l
 du -sh "$FULLHTLV"
-ps -u cpwei -o pid,etime,pcpu,pmem,cmd | grep -E 'bwa|samtools|run_retro' | grep -v grep
+ps -u "$USER" -o pid,etime,pcpu,pmem,cmd | grep -E 'bwa|samtools|run_retro' | grep -v grep
 ```
 
 Proceed to full WGS only after choosing whether WGS should use:
@@ -145,7 +145,7 @@ Proceed to full WGS only after choosing whether WGS should use:
 Run all 60 WGS samples at 5 million pairs per sample before considering full WGS. This verifies control specificity without committing to the full WGS compute/storage cost.
 
 ```bash
-cd /path/to/work
+cd /path/to/shuyu_project
 
 python - <<'PY'
 import csv
@@ -162,9 +162,9 @@ with open(out, "w", newline="") as handle:
 print(f"wrote {len(rows)} WGS rows to {out}")
 PY
 
-REFWORK=/path/to/data
-WGSWORK=/path/to/data
-SORTTMP=/path/to/data
+REFWORK=/path/to/runs/archive_before_home_cleanup_2026-05-17/retro_competitive
+WGSWORK=/path/to/runs/wgs_hiv_hl_5m_competitive
+SORTTMP=/path/to/tmp/samtools_sort
 mkdir -p "$WGSWORK" "$SORTTMP"
 
 python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/run_retro_pilot_alignment.py \
@@ -192,8 +192,8 @@ cat "$WGSWORK/results/final_summary/wgs_retro_report.md"
 Monitor progress:
 
 ```bash
-WGSWORK=/path/to/data
+WGSWORK=/path/to/runs/wgs_hiv_hl_5m_competitive
 find "$WGSWORK/results" -name "*.idxstats.tsv" | wc -l
-ps -u cpwei -o pid,etime,pcpu,pmem,cmd | grep -E 'bwa|samtools|run_retro' | grep -v grep
+ps -u "$USER" -o pid,etime,pcpu,pmem,cmd | grep -E 'bwa|samtools|run_retro' | grep -v grep
 du -sh "$WGSWORK"
 ```

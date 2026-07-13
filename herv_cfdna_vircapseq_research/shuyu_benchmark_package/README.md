@@ -10,8 +10,8 @@ Prepare the benchmark inputs for Shuyu's shared data without copying protected s
 
 Expected remote paths:
 
-- `/path/to/data`
-- `/path/to/data`
+- `/path/to/controlled_data/wgs_cohort`
+- `/path/to/controlled_data/htlv_targeted`
 
 The package creates:
 
@@ -27,8 +27,8 @@ Run from the repo root:
 
 ```bash
 python herv_cfdna_vircapseq_research/shuyu_benchmark_package/scripts/prepare_shuyu_benchmark.py \
-  --wgs-dir /path/to/data \
-  --htlv-targeted-dir /path/to/data \
+  --wgs-dir /path/to/controlled_data/wgs_cohort \
+  --htlv-targeted-dir /path/to/controlled_data/htlv_targeted \
   --output-dir herv_cfdna_vircapseq_research/shuyu_benchmark_package/output
 ```
 

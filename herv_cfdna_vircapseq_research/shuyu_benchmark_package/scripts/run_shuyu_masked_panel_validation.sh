@@ -2,25 +2,25 @@
 set -euo pipefail
 
 STEP="${1:-help}"
-PROJECT="${PROJECT:-/path/to/work}"
+PROJECT="${PROJECT:-/path/to/shuyu_project}"
 PACKAGE="$PROJECT/herv_cfdna_vircapseq_research/shuyu_benchmark_package"
 SCRIPTS="$PACKAGE/scripts"
 OUT="${OUT:-$PACKAGE/output}"
 
-BASE_REFDIR="${BASE_REFDIR:-/path/to/data}"
+BASE_REFDIR="${BASE_REFDIR:-/path/to/runs/retro_reference_hg38_refseq/ref}"
 BASE_REFERENCE_FASTA="${BASE_REFERENCE_FASTA:-$BASE_REFDIR/hg38_plus_retro.refseq.fa}"
 BASE_REFERENCE_MAP="${BASE_REFERENCE_MAP:-$BASE_REFDIR/hg38_plus_retro.refseq.reference_map.csv}"
-SHUYU_PANEL_FASTA="${SHUYU_PANEL_FASTA:-/path/to/data}"
-SHUYU_PANEL_REFDIR="${SHUYU_PANEL_REFDIR:-/path/to/data}"
+SHUYU_PANEL_FASTA="${SHUYU_PANEL_FASTA:-/path/to/refs/HIV1_masked/viral_sel_v1_MASKED_HIV1masked.fa}"
+SHUYU_PANEL_REFDIR="${SHUYU_PANEL_REFDIR:-/path/to/runs/shuyu_masked_panel_hg38_herv_line1/ref}"
 SHUYU_PANEL_REFERENCE_FASTA="${SHUYU_PANEL_REFERENCE_FASTA:-$SHUYU_PANEL_REFDIR/hg38_herv_line1_plus_shuyu_masked_panel.fa}"
 SHUYU_PANEL_REFERENCE_MAP="${SHUYU_PANEL_REFERENCE_MAP:-$SHUYU_PANEL_REFDIR/hg38_herv_line1_plus_shuyu_masked_panel.reference_map.csv}"
 SHUYU_PANEL_INVENTORY="${SHUYU_PANEL_INVENTORY:-$SHUYU_PANEL_REFDIR/shuyu_masked_panel_inventory.csv}"
-SORTTMP="${SORTTMP:-/path/to/data}"
+SORTTMP="${SORTTMP:-/path/to/tmp/samtools_sort}"
 
-FULLHTLV_CURRENT="${FULLHTLV_CURRENT:-/path/to/data}"
-WGSFULL_CURRENT="${WGSFULL_CURRENT:-/path/to/data}"
-FULLHTLV_PANEL="${FULLHTLV_PANEL:-/path/to/data}"
-WGSFULL_PANEL="${WGSFULL_PANEL:-/path/to/data}"
+FULLHTLV_CURRENT="${FULLHTLV_CURRENT:-/path/to/runs/targeted_htlv_hg38_refseq_mapq_human60_viral40_coord}"
+WGSFULL_CURRENT="${WGSFULL_CURRENT:-/path/to/runs/wgs_hiv_hl_hg38_refseq_mapq_human60_viral40_coord}"
+FULLHTLV_PANEL="${FULLHTLV_PANEL:-/path/to/runs/targeted_htlv_hg38_shuyu_masked_panel_primary_only}"
+WGSFULL_PANEL="${WGSFULL_PANEL:-/path/to/runs/wgs_hiv_hl_hg38_shuyu_masked_panel_primary_only}"
 PANEL_FILTER_ARGS=(--filter-category HERV --filter-category HIV1 --filter-category HIV2 --filter-category HTLV1 --filter-category HTLV2 --filter-category LINE1 --filter-category OTHER_VIRAL)
 
 require_file() {

@@ -317,8 +317,8 @@ python "$ROOT/scripts/compare_assays_and_wgs.py" "$OUT/frozen_calls.csv" "$OUT/a
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Prepare Shuyu HIV/HL WGS and HTLV targeted benchmark manifests.")
-    parser.add_argument("--wgs-dir", type=Path, default=Path("/path/to/data"))
-    parser.add_argument("--htlv-targeted-dir", type=Path, default=Path("/path/to/data"))
+    parser.add_argument("--wgs-dir", type=Path, default=Path("/path/to/controlled_data/wgs_cohort"))
+    parser.add_argument("--htlv-targeted-dir", type=Path, default=Path("/path/to/controlled_data/htlv_targeted"))
     parser.add_argument("--output-dir", type=Path, default=Path("herv_cfdna_vircapseq_research/shuyu_benchmark_package/output"))
     parser.add_argument("--reference-build", default="unknown")
     parser.add_argument("--pilot-hiv-wgs", type=int, default=2)

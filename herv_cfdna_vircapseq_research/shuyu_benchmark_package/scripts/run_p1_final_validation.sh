@@ -2,26 +2,26 @@
 set -euo pipefail
 
 STEP="${1:-help}"
-PROJECT="${PROJECT:-/path/to/work}"
+PROJECT="${PROJECT:-/path/to/shuyu_project}"
 PACKAGE="$PROJECT/herv_cfdna_vircapseq_research/shuyu_benchmark_package"
 SCRIPTS="$PACKAGE/scripts"
 OUT="${OUT:-$PACKAGE/output}"
 
-FULLHTLV="${FULLHTLV:-/path/to/data}"
-WGSFULL="${WGSFULL:-/path/to/data}"
-OLDHTLV="${OLDHTLV:-/path/to/data}"
-OLDWGS="${OLDWGS:-/path/to/data}"
-REFDIR="${REFDIR:-/path/to/data}"
+FULLHTLV="${FULLHTLV:-/path/to/runs/targeted_htlv_hg38_refseq_mapq_human60_viral40_coord}"
+WGSFULL="${WGSFULL:-/path/to/runs/wgs_hiv_hl_hg38_refseq_mapq_human60_viral40_coord}"
+OLDHTLV="${OLDHTLV:-/path/to/runs/targeted_htlv_full_competitive}"
+OLDWGS="${OLDWGS:-/path/to/runs/wgs_hiv_hl_full_competitive}"
+REFDIR="${REFDIR:-/path/to/runs/retro_reference_hg38_refseq/ref}"
 REFERENCE_FASTA="${REFERENCE_FASTA:-$REFDIR/hg38_plus_retro.refseq.fa}"
 REFERENCE_MAP="${REFERENCE_MAP:-$REFDIR/hg38_plus_retro.refseq.reference_map.csv}"
-SORTTMP="${SORTTMP:-/path/to/data}"
-TARGETED_HIV_WORK="${TARGETED_HIV_WORK:-/path/to/data}"
+SORTTMP="${SORTTMP:-/path/to/tmp/samtools_sort}"
+TARGETED_HIV_WORK="${TARGETED_HIV_WORK:-/path/to/runs/targeted_hiv_hg38_refseq_mapq_human60_viral40_coord}"
 MASK_KMER="${MASK_KMER:-40}"
-MASKDIR="${MASKDIR:-/path/to/data${MASK_KMER}/ref}"
+MASKDIR="${MASKDIR:-/path/to/runs/retro_reference_hg38_refseq_masked_hiv1_htlv1_vs_herv_k${MASK_KMER}/ref}"
 MASKED_REFERENCE_FASTA="${MASKED_REFERENCE_FASTA:-$MASKDIR/hg38_plus_retro.refseq.masked_hiv1_htlv1_vs_herv.k${MASK_KMER}.fa}"
 MASKED_REFERENCE_MAP="${MASKED_REFERENCE_MAP:-$MASKDIR/hg38_plus_retro.refseq.masked_hiv1_htlv1_vs_herv.k${MASK_KMER}.reference_map.csv}"
-FULLHTLV_MASKED="${FULLHTLV_MASKED:-/path/to/data${MASK_KMER}_mapq_human60_viral40_coord}"
-WGSFULL_MASKED="${WGSFULL_MASKED:-/path/to/data${MASK_KMER}_mapq_human60_viral40_coord}"
+FULLHTLV_MASKED="${FULLHTLV_MASKED:-/path/to/runs/targeted_htlv_hg38_refseq_masked_k${MASK_KMER}_mapq_human60_viral40_coord}"
+WGSFULL_MASKED="${WGSFULL_MASKED:-/path/to/runs/wgs_hiv_hl_hg38_refseq_masked_k${MASK_KMER}_mapq_human60_viral40_coord}"
 RETRO_FILTER_ARGS=(--filter-category HERV --filter-category HIV1 --filter-category HIV2 --filter-category HTLV1 --filter-category HTLV2 --filter-category LINE1)
 
 require_file() {

@@ -123,10 +123,8 @@ cromwell-workflow-logs/
 *.part
 
 # Protected or machine-specific data locations
+# Controlled cohorts must live under data/controlled/ (never named here).
 drive3/
-Shuyu_for_Michael/
-WGS_60samples_HIV_HL/
-Targeted_HTLV_TCLsamples/
 data/raw/
 data/staging/
 data/protected/
