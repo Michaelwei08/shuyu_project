@@ -153,6 +153,17 @@ data/downloads/
 **/visuals/
 **/output/
 
+# Figure/plot DATA tables (hold per-sample IDs + read counts). These live at repo
+# and project roots -- outside results/visuals/output -- so the rules above miss them.
+**/figure*.tsv
+**/figure*.csv
+**/*_plot_data.tsv
+**/*_plot_data.csv
+**/*_detection_proportions.tsv
+**/*_detection_proportions.csv
+final_rerun_figures/*.tsv
+final_rerun_figures/*.csv
+
 # Keep lightweight examples, templates, docs, and source code trackable
 !**/data/manifests/example_*.csv
 !**/data/manifests/*template*.csv
