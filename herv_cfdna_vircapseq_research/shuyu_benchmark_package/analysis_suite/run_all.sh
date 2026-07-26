@@ -1,0 +1,259 @@
+#!/usr/bin/env bash
+#
+# run_all.sh -- run the whole analysis suite (a1..a7) into one --outdir on the
+# cluster, then render the figures (a8) over those outputs.
+#
+# Every step gets its documented default input paths. Steps are independent:
+# one failing step does not stop the others, and the failures are listed at the
+# end. Exit status is 0 only when every step succeeded.
+#
+# USAGE
+#   bash run_all.sh                       # documented defaults
+#   bash run_all.sh /path/to/outdir       # same, different output directory
+#   OUTDIR=... RUNS_ROOT=... bash run_all.sh
+#
+# ENVIRONMENT OVERRIDES (all optional)
+#   OUTDIR      where every .tsv lands            (default below)
+#   RUNS_ROOT   root holding the run directories  (/path/to/runs)
+#   PYTHON      python interpreter                (python3)
+#   SAMTOOLS    samtools executable               (samtools)
+#   ONLY        space-separated step ids to run    e.g. ONLY="a1 a8"
+#
+# IDENTIFIERS
+#   Only the *_sample_key.tsv files carry real sample names. Every other output,
+#   including this script's per-step logs, uses the anonymous ids S01..Snn.
+#   Do not commit or email the key files or the logs directory without checking.
+#
+# Date: 2026-07-26
+set -euo pipefail
+
+# --------------------------------------------------------------------------- #
+# configuration
+# --------------------------------------------------------------------------- #
+RUNS_ROOT="${RUNS_ROOT:-/path/to/runs}"
+OUTDIR="${OUTDIR:-${1:-${RUNS_ROOT}/panel_report_20260725/suite_out}}"
+PYTHON="${PYTHON:-python3}"
+SAMTOOLS="${SAMTOOLS:-samtools}"
+ONLY="${ONLY:-}"
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FIGDIR="${OUTDIR}/figures"
+LOGDIR="${OUTDIR}/logs"
+
+# documented default inputs (see each module's --help)
+TARGETED_CURRENT="${RUNS_ROOT}/targeted_htlv_hg38_refseq_mapq_human60_viral40_coord"
+WGS_CURRENT="${RUNS_ROOT}/wgs_hiv_hl_hg38_refseq_mapq_human60_viral40_coord"
+WGS_PANEL="${RUNS_ROOT}/wgs_hiv_hl_hg38_shuyu_masked_panel_refixed_primary_only"
+TARGETED_PANEL="${RUNS_ROOT}/targeted_htlv_hg38_shuyu_masked_panel_refixed_primary_only"
+PANEL_REFMAP="${RUNS_ROOT}/shuyu_masked_panel_hg38_herv_line1_refixed/ref/hg38_herv_line1_plus_shuyu_masked_panel.reference_map.csv"
+BASE_REFMAP="${RUNS_ROOT}/retro_reference_hg38_refseq/ref/hg38_plus_retro.refseq.reference_map.csv"
+LADDER_SUMMARY="${RUNS_ROOT}/reply_to_shuyu_primary_only/kmer_ladder_summary.tsv"
+LADDER_DIR="${RUNS_ROOT}/reply_to_shuyu_primary_only/kmer_ladder"
+MASK_METRICS_DIR="${RUNS_ROOT}/retro_reference_hg38_refseq_mask_metrics_k40"
+MASKED_BUILD_DIR="${RUNS_ROOT}/retro_reference_hg38_refseq_masked_hiv1_htlv1_vs_herv_k40"
+
+DETECTION_THRESHOLD=100
+
+if ! mkdir -p "$OUTDIR" "$FIGDIR" "$LOGDIR"; then
+    echo "FATAL: cannot create the output directory ${OUTDIR}" >&2
+    exit 2
+fi
+
+STARTED_AT="$(date '+%Y-%m-%d %H:%M:%S')"
+OK_STEPS=()
+FAILED_STEPS=()
+SKIPPED_STEPS=()
+
+# --------------------------------------------------------------------------- #
+# step runner
+# --------------------------------------------------------------------------- #
+selected() {
+    [ -z "$ONLY" ] && return 0
+    local want
+    for want in $ONLY; do
+        [ "$want" = "$1" ] && return 0
+    done
+    return 1
+}
+
+run_step() {
+    local id="$1"; shift
+    local question="$1"; shift
+
+    if ! selected "$id"; then
+        SKIPPED_STEPS+=("${id} (not in ONLY)")
+        return 0
+    fi
+
+    local log="${LOGDIR}/${id}.log"
+    echo ""
+    echo "=============================================================================="
+    echo "[${id}]  ${question}"
+    echo "  module : $(basename "$1")"
+    echo "  outdir : ${OUTDIR}"
+    echo "  log    : ${log}"
+    echo "  started: $(date '+%Y-%m-%d %H:%M:%S')"
+    echo "=============================================================================="
+
+    # pipefail makes this see the module's status, not tee's
+    if "$PYTHON" "$@" 2>&1 | tee "$log"; then
+        echo "[${id}] OK"
+        OK_STEPS+=("$id")
+    else
+        local rc=$?
+        echo "[${id}] FAILED (exit ${rc}) -- continuing; see ${log}"
+        FAILED_STEPS+=("${id} (exit ${rc})")
+    fi
+    return 0
+}
+
+echo "=============================================================================="
+echo "VIRAL SEQUENCING ANALYSIS SUITE -- run_all.sh"
+echo "=============================================================================="
+echo "  started    : ${STARTED_AT}"
+echo "  suite dir  : ${HERE}"
+echo "  runs root  : ${RUNS_ROOT}"
+echo "  outdir     : ${OUTDIR}"
+echo "  figures    : ${FIGDIR}"
+echo "  logs       : ${LOGDIR}"
+echo "  python     : ${PYTHON}"
+echo "  samtools   : ${SAMTOOLS}"
+if [ -n "$ONLY" ]; then
+    echo "  ONLY       : ${ONLY}"
+fi
+if [ ! -d "$RUNS_ROOT" ]; then
+    echo ""
+    echo "  NOTE: runs root ${RUNS_ROOT} does not exist here. Every module reports"
+    echo "        its missing inputs with a WARN and exits 0, so this run will"
+    echo "        produce empty or header-only tables rather than failing."
+fi
+
+# --------------------------------------------------------------------------- #
+# a1 .. a7 -- all into one --outdir
+# --------------------------------------------------------------------------- #
+run_step a1 "How well does the panel detect HTLV-1 / HIV-1?" \
+    "${HERE}/a1_detection_performance.py" \
+    --runs-root "$RUNS_ROOT" \
+    --run "$TARGETED_CURRENT" \
+    --run "$WGS_CURRENT" \
+    --targets HTLV1,HIV1 \
+    --threshold "$DETECTION_THRESHOLD" \
+    --outdir "$OUTDIR" \
+    --prefix detection \
+    --samtools "$SAMTOOLS"
+
+run_step a2 "What does adding the human genome as a competitor change?" \
+    "${HERE}/a2_reference_comparison.py" \
+    --runs-root "$RUNS_ROOT" \
+    --base-refmap "$BASE_REFMAP" \
+    --panel-refmap "$PANEL_REFMAP" \
+    --outdir "$OUTDIR" \
+    --prefix a2 \
+    --samtools "$SAMTOOLS"
+
+run_step a3 "What does k cost and buy in the HERV masking ladder?" \
+    "${HERE}/a3_kmer_ladder.py" \
+    --ladder-summary "$LADDER_SUMMARY" \
+    --ladder-dir "$LADDER_DIR" \
+    --mask-metrics-dir "$MASK_METRICS_DIR" \
+    --masked-build-dir "$MASKED_BUILD_DIR" \
+    --outdir "$OUTDIR" \
+    --prefix kmer_ladder
+
+run_step a4 "Which detections survive subsampling to 5M reads?" \
+    "${HERE}/a4_depth_sensitivity.py" \
+    --runs-root "$RUNS_ROOT" \
+    --sub-run wgs_hiv_hl_5m_competitive \
+    --full-run wgs_hiv_hl_full_competitive \
+    --outdir "$OUTDIR" \
+    --prefix depth_sensitivity \
+    --samtools "$SAMTOOLS"
+
+run_step a5 "Is a per-reference signal a real genome or a pile-up?" \
+    "${HERE}/a5_reference_depth_profiles.py" \
+    --run "$WGS_PANEL" \
+    --run "$TARGETED_PANEL" \
+    --ref ebv1 --ref ebv2 --ref hhv6b \
+    --refmap "$PANEL_REFMAP" \
+    --outdir "$OUTDIR" \
+    --prefix refprofile \
+    --samtools "$SAMTOOLS"
+
+run_step a6 "Is there read-level evidence of HTLV-1 integration?" \
+    "${HERE}/a6_htlv_junctions.py" \
+    --run-dir "$TARGETED_CURRENT" \
+    --refmap "$BASE_REFMAP" \
+    --outdir "$OUTDIR" \
+    --prefix htlv_junction \
+    --samtools "$SAMTOOLS"
+
+run_step a7 "What is the anellovirus burden and coinfection structure?" \
+    "${HERE}/a7_virome_structure.py" \
+    --runs "$WGS_PANEL" "$TARGETED_PANEL" \
+    --refmap "$PANEL_REFMAP" \
+    --base-refmap "$BASE_REFMAP" \
+    --outdir "$OUTDIR" \
+    --prefix a7_virome \
+    --samtools "$SAMTOOLS"
+
+# --------------------------------------------------------------------------- #
+# a8 -- figures over whatever a1..a7 actually wrote
+# --------------------------------------------------------------------------- #
+run_step a8 "Render the figures from the tables a1..a7 wrote" \
+    "${HERE}/a8_figures.py" \
+    --indir "$OUTDIR" \
+    --outdir "$FIGDIR" \
+    --prefix a8 \
+    --default-threshold "$DETECTION_THRESHOLD"
+
+# --------------------------------------------------------------------------- #
+# report
+# --------------------------------------------------------------------------- #
+echo ""
+echo "=============================================================================="
+echo "SUMMARY"
+echo "=============================================================================="
+echo "  started  : ${STARTED_AT}"
+echo "  finished : $(date '+%Y-%m-%d %H:%M:%S')"
+echo "  succeeded: ${#OK_STEPS[@]}  ${OK_STEPS[*]:-(none)}"
+echo "  failed   : ${#FAILED_STEPS[@]}"
+if [ "${#FAILED_STEPS[@]}" -gt 0 ]; then
+    for step in "${FAILED_STEPS[@]}"; do
+        echo "             ${step}"
+    done
+fi
+if [ "${#SKIPPED_STEPS[@]}" -gt 0 ]; then
+    echo "  skipped  : ${#SKIPPED_STEPS[@]}"
+    for step in "${SKIPPED_STEPS[@]}"; do
+        echo "             ${step}"
+    done
+fi
+
+echo ""
+echo "  tables   : ${OUTDIR}"
+echo "  figures  : ${FIGDIR}"
+echo "  logs     : ${LOGDIR}"
+
+echo ""
+echo "  IDENTIFIERS -- these files carry real sample names, nothing else does:"
+found_key=0
+for key in "${OUTDIR}"/*_sample_key.tsv "${FIGDIR}"/*_sample_key.tsv; do
+    if [ -f "$key" ]; then
+        echo "    ${key}"
+        found_key=1
+    fi
+done
+if [ "$found_key" -eq 0 ]; then
+    echo "    (none written)"
+fi
+echo "  Do NOT commit or email the *_sample_key.tsv files."
+echo "  Per-step logs are anonymised, but skim them before sharing."
+
+if [ "${#FAILED_STEPS[@]}" -gt 0 ]; then
+    echo ""
+    echo "Finished with ${#FAILED_STEPS[@]} failed step(s)."
+    exit 1
+fi
+echo ""
+echo "All selected steps succeeded."
+exit 0
