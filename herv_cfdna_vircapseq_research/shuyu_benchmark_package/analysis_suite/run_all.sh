@@ -7,16 +7,26 @@
 # one failing step does not stop the others, and the failures are listed at the
 # end. Exit status is 0 only when every step succeeded.
 #
+# a9 and a10 are OPTIONAL follow-ups and are not part of the default run. Each is
+# gated on an input the default run does not have, and is reported as SKIPPED --
+# never as a failure -- when that input is absent:
+#   a9   needs a clinical CD4 table   -> set CD4_TABLE=<file>
+#   a10  needs BAMs                   -> needs <A10_RUN>/bam/*.bam to exist
+#
 # USAGE
-#   bash run_all.sh                       # documented defaults
+#   bash run_all.sh                       # documented defaults (a1..a8)
 #   bash run_all.sh /path/to/outdir       # same, different output directory
 #   OUTDIR=... RUNS_ROOT=... bash run_all.sh
+#   CD4_TABLE=/path/to/cd4.tsv bash run_all.sh          # also runs a9
 #
 # ENVIRONMENT OVERRIDES (all optional)
 #   OUTDIR      where every .tsv lands            (default below)
 #   RUNS_ROOT   root holding the run directories  (/path/to/runs)
 #   PYTHON      python interpreter                (python3)
 #   SAMTOOLS    samtools executable               (samtools)
+#   CD4_TABLE   clinical CD4 table for a9         (unset -> a9 is SKIPPED)
+#   A10_RUN     run directory a10 audits          (default: the WGS panel run;
+#                                                  no bam/*.bam -> a10 SKIPPED)
 #   ONLY        space-separated step ids to run    e.g. ONLY="a1 a8"
 #
 # IDENTIFIERS
@@ -86,6 +96,10 @@ MASKED_BUILD_DIR="${RUNS_ROOT}/retro_reference_hg38_refseq_masked_hiv1_htlv1_vs_
 
 DETECTION_THRESHOLD=100
 
+# optional-step inputs (see the gates further down)
+CD4_TABLE="${CD4_TABLE:-}"
+A10_RUN="${A10_RUN:-$WGS_PANEL}"
+
 if ! mkdir -p "$OUTDIR" "$FIGDIR" "$LOGDIR"; then
     echo "FATAL: cannot create the output directory ${OUTDIR}" >&2
     exit 2
@@ -136,6 +150,29 @@ run_step() {
         echo "[${id}] FAILED (exit ${rc}) -- continuing; see ${log}"
         FAILED_STEPS+=("${id} (exit ${rc})")
     fi
+    return 0
+}
+
+# Gated step. $2 is either the literal "ok" or the reason the step cannot run;
+# a step that cannot run is SKIPPED, so the default run's exit status does not
+# change just because an optional input is missing.
+maybe_step() {
+    local id="$1"; shift
+    local gate="$1"; shift
+
+    if ! selected "$id"; then
+        SKIPPED_STEPS+=("${id} (not in ONLY)")
+        return 0
+    fi
+    if [ "$gate" != "ok" ]; then
+        SKIPPED_STEPS+=("${id} (${gate})")
+        echo ""
+        echo "=============================================================================="
+        echo "[${id}]  SKIPPED -- ${gate}"
+        echo "=============================================================================="
+        return 0
+    fi
+    run_step "$id" "$@"
     return 0
 }
 
@@ -226,6 +263,46 @@ run_step a7 "What is the anellovirus burden and coinfection structure?" \
     --base-refmap "$BASE_REFMAP" \
     --outdir "$OUTDIR" \
     --prefix a7_virome \
+    --samtools "$SAMTOOLS"
+
+# --------------------------------------------------------------------------- #
+# a9, a10 -- OPTIONAL follow-ups, gated on inputs the default run does not have.
+# Both read a7's outputs out of "$OUTDIR", so they must come after a7.
+# --------------------------------------------------------------------------- #
+A9_GATE="ok"
+if [ -z "$CD4_TABLE" ]; then
+    A9_GATE="no CD4 table; set CD4_TABLE=<file> to enable"
+elif [ ! -f "$CD4_TABLE" ]; then
+    A9_GATE="CD4 table not found at ${CD4_TABLE}"
+fi
+
+maybe_step a9 "$A9_GATE" \
+    "Does the anellovirus burden rise as CD4 falls?" \
+    "${HERE}/a9_cd4_correlation.py" \
+    --indir "$OUTDIR" \
+    --outdir "$OUTDIR" \
+    --cd4 "$CD4_TABLE" \
+    --a7-prefix a7_virome
+
+A10_GATE="ok"
+if [ ! -d "$A10_RUN" ]; then
+    A10_GATE="run directory ${A10_RUN} is not present"
+else
+    # an unmatched glob stays literal, so [0] always exists and -e settles it
+    A10_BAMS=( "${A10_RUN}"/bam/*.bam )
+    if [ ! -e "${A10_BAMS[0]}" ]; then
+        A10_GATE="no BAM at ${A10_RUN}/bam/*.bam"
+    fi
+fi
+
+maybe_step a10 "$A10_GATE" \
+    "Is the low-count anellovirus signal real virus or cross-mapping?" \
+    "${HERE}/a10_anello_read_audit.py" \
+    --run "$A10_RUN" \
+    --refmap "$PANEL_REFMAP" \
+    --indir "$OUTDIR" \
+    --outdir "$OUTDIR" \
+    --prefix anello_read_audit \
     --samtools "$SAMTOOLS"
 
 # --------------------------------------------------------------------------- #
