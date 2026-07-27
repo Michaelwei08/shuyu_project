@@ -32,9 +32,41 @@ set -euo pipefail
 # --------------------------------------------------------------------------- #
 RUNS_ROOT="${RUNS_ROOT:-/path/to/runs}"
 OUTDIR="${OUTDIR:-${1:-${RUNS_ROOT}/panel_report_20260725/suite_out}}"
-PYTHON="${PYTHON:-python3}"
 SAMTOOLS="${SAMTOOLS:-samtools}"
 ONLY="${ONLY:-}"
+
+# --------------------------------------------------------------------------- #
+# interpreter selection
+#
+# The modules need Python >= 3.7 ("from __future__ import annotations"). Several
+# clusters still ship a 3.6 as plain "python3", which fails at import time in
+# every module at once. If PYTHON is set we honour it but still check it; if not,
+# we probe the usual candidates and take the first that is new enough.
+# --------------------------------------------------------------------------- #
+py_ok () {  # $1 = interpreter; true if it exists and is >= 3.7
+    command -v "$1" >/dev/null 2>&1 || return 1
+    "$1" -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (3, 7) else 1)' >/dev/null 2>&1
+}
+
+if [ -n "${PYTHON:-}" ]; then
+    if ! py_ok "$PYTHON"; then
+        echo "ERROR: PYTHON=$PYTHON is missing or older than 3.7." >&2
+        "$PYTHON" --version >&2 2>/dev/null || true
+        echo "       The modules need >= 3.7 (from __future__ import annotations)." >&2
+        exit 2
+    fi
+else
+    PYTHON=""
+    for _cand in python3.12 python3.11 python3.10 python3.9 python3.8 python3 python; do
+        if py_ok "$_cand"; then PYTHON="$_cand"; break; fi
+    done
+    if [ -z "$PYTHON" ]; then
+        echo "ERROR: no Python >= 3.7 found on PATH (tried python3.12 .. python)." >&2
+        echo "       Set one explicitly, e.g. PYTHON=/usr/bin/python3.11 bash run_all.sh" >&2
+        exit 2
+    fi
+fi
+export PYTHON
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FIGDIR="${OUTDIR}/figures"
@@ -116,7 +148,7 @@ echo "  runs root  : ${RUNS_ROOT}"
 echo "  outdir     : ${OUTDIR}"
 echo "  figures    : ${FIGDIR}"
 echo "  logs       : ${LOGDIR}"
-echo "  python     : ${PYTHON}"
+echo "  python     : ${PYTHON}  ($("${PYTHON}" --version 2>&1))"
 echo "  samtools   : ${SAMTOOLS}"
 if [ -n "$ONLY" ]; then
     echo "  ONLY       : ${ONLY}"
