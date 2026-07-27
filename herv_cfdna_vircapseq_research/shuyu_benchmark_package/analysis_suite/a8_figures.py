@@ -318,6 +318,14 @@ def group_of(name):
     """
     if not name:
         return "NA"
+    # The sample-specific label is HIV/HL immediately followed by a digit
+    # (HIV<ID>, HL<ID>). Match that first and case-sensitively: the WGS cohort
+    # prefix "wgs_60samples_hiv_hl_" is lowercase, and an upper()/lower()
+    # test for "_HIV" would otherwise label every WGS sample HIV and leave
+    # the HL group empty.
+    _m = re.search(r"(?:^|_)(HIV|HL)[0-9]", name or "")
+    if _m:
+        return _m.group(1)
     up = str(name).upper()
     if "_HIV" in up:
         return "HIV"

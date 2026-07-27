@@ -59,6 +59,7 @@ from __future__ import annotations
 import argparse
 import csv
 import glob
+import re
 import os
 import subprocess
 import sys
@@ -133,9 +134,16 @@ def pct_change(a, b):
 def group_from_name(sample, context=""):
     """Group label from the real sample name; run name used only as a fallback.
 
-    Suite-wide rule, matched case-insensitively so it behaves the same in every
-    module: "_HIV" -> HIV, "_HL" -> HL, "TCL"/"targeted_htlv" -> TCL, else NA.
+    Suite-wide rule, applied uniformly in every module: "_HIV" -> HIV, "_HL" -> HL, "TCL"/"targeted_htlv" -> TCL, else NA.
     """
+    # The sample-specific label is HIV/HL immediately followed by a digit
+    # (HIV<ID>, HL<ID>). Match that first and case-sensitively: the WGS cohort
+    # prefix "wgs_60samples_hiv_hl_" is lowercase, and an upper()/lower()
+    # test for "_HIV" would otherwise label every WGS sample HIV and leave
+    # the HL group empty.
+    _m = re.search(r"(?:^|_)(HIV|HL)[0-9]", sample or "")
+    if _m:
+        return _m.group(1)
     up = (sample or "").upper()
     if "_HIV" in up:
         return "HIV"

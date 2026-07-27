@@ -286,6 +286,14 @@ def write_tsv(path, comments, header, rows):
 # --------------------------------------------------------------------------- #
 def group_of(sample, run_name, use_run_name=True):
     """HIV / HL / TCL / NA from the real sample name (spec-defined rules)."""
+    # The sample-specific label is HIV/HL immediately followed by a digit
+    # (HIV<ID>, HL<ID>). Match that first and case-sensitively: the WGS cohort
+    # prefix "wgs_60samples_hiv_hl_" is lowercase, and an upper()/lower()
+    # test for "_HIV" would otherwise label every WGS sample HIV and leave
+    # the HL group empty.
+    _m = re.search(r"(?:^|_)(HIV|HL)[0-9]", sample or "")
+    if _m:
+        return _m.group(1)
     low = sample.lower()
     if "_hiv" in low:
         return "HIV"
