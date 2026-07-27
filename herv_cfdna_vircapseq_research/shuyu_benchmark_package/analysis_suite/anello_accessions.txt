@@ -1,0 +1,45 @@
+# Anelloviridae references in the Shuyu masked panel.
+#
+# One accession per line; blank lines and #-comments ignored. a7 picks this file
+# up automatically when it sits beside the module, or pass --anello-accessions.
+#
+# Every entry was resolved against live NCBI Taxonomy (nuccore + taxonomy
+# esummary), not from memory. Note that the N in "Torque teno virus N" is an
+# ICTV/NCBI species index, NOT a genotype -- only NC_002076.2 carries a real
+# /genotype qualifier.
+#
+# Three of these are chimpanzee isolates (NC_014069.1 Pt-TTV6, NC_014077.1
+# s-TTV CH65-1, NC_014480.2 s-TTV CH71). a7 flags them separately by default and
+# excludes them from human-diversity metrics; they are listed here so they are
+# still recognised as Anelloviridae rather than falling into OTHER.
+
+# --- Alphatorquevirus (Torque teno virus, TTV) ---
+NC_002076.2    # Torque teno virus 1 (isolate VT416, genotype 1)
+NC_014069.1    # Torque teno virus 4  [chimpanzee isolate Pt-TTV6]
+NC_014073.1    # Torque teno virus 28
+NC_014074.1    # Torque teno virus 27
+NC_014075.1    # Torque teno virus 12
+NC_014076.1    # Torque teno virus 10
+NC_014077.1    # Torque teno virus 14 [chimpanzee isolate s-TTV CH65-1]
+NC_014078.1    # Torque teno virus 19
+NC_014080.1    # Torque teno virus 7
+NC_014081.1    # Torque teno virus 3  (isolate HEL32)
+NC_014091.1    # Torque teno virus 16
+NC_014094.1    # Torque teno virus 6  (isolate KAV)
+NC_014096.1    # Torque teno virus 15
+NC_014480.2    # Torque teno virus 2  [chimpanzee isolate s-TTV CH71, 3.3 kb]
+
+# --- Betatorquevirus (Torque teno mini virus, TTMV) ---
+NC_002195.1    # Torque teno mini virus 9 (TLMV, isolate TLMV-CLC062)
+NC_014086.1    # Torque teno mini virus 2
+NC_014088.1    # Torque teno mini virus 3
+NC_014097.1    # Torque teno mini virus 1
+NC_025726.1    # Torque teno mini virus ALA22
+NC_030297.1    # Torque teno mini virus 18
+
+# --- Gammatorquevirus (Torque teno midi virus, TTMDV) ---
+NC_014093.1    # Torque teno midi virus 2
+
+# --- unclassified Anelloviridae ---
+NC_014084.1    # Torque teno virus 8 (isolate Kt-08F; taxon sits outside Alphatorquevirus)
+NC_015783.1    # Torque teno virus, isolate TTV-HD14a (legacy catch-all taxon 68887)
