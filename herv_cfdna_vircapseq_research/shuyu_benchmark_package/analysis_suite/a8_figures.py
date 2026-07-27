@@ -75,6 +75,7 @@ Date: 2026-07-26
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import random
 import re
@@ -149,9 +150,26 @@ INPUTS = [
 PRIMARY_NAMES = [row[1] for row in INPUTS]
 
 
+def resolve_font_families():
+    """Keep only families this matplotlib can actually resolve.
+
+    matplotlib >= 3.6 resolves every family in font.family for its font-fallback
+    chain and logs a findfont warning for each one it cannot find. Listing a
+    platform font such as Segoe UI therefore produces one warning per text
+    element on a machine without it. DejaVu Sans always ships with matplotlib,
+    so it is the guaranteed tail of the list.
+    """
+    import matplotlib.font_manager as fm
+    have = {f.name for f in fm.fontManager.ttflist}
+    fams = [n for n in ("Segoe UI", "Helvetica Neue", "Arial") if n in have]
+    return fams + ["DejaVu Sans", "sans-serif"]
+
+
 def style_rcparams():
+    # never let font resolution spam the log even if a family slips through
+    logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
     plt.rcParams.update({
-        "font.family": ["DejaVu Sans", "Segoe UI", "sans-serif"],
+        "font.family": resolve_font_families(),
         "figure.facecolor": SURFACE,
         "axes.facecolor": SURFACE,
         "savefig.facecolor": SURFACE,
