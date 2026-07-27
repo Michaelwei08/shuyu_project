@@ -293,6 +293,17 @@ def redact(text, sample, anon):
     return str(text).replace(sample, anon)
 
 
+# samtools echoes the full BAM path on failure, which names the controlled-data
+# mount. Redacting the sample name alone is not enough; scrub path-like tokens
+# too. Same helper as a11/a12.
+PATH_TOKEN_RE = re.compile(r"[^\s'\"]*[/\\][^\s'\"]*")
+
+
+def strip_paths(text):
+    """Replace every filesystem-path-looking token with a literal <path>."""
+    return PATH_TOKEN_RE.sub("<path>", str(text or ""))
+
+
 def out_name(prefix, base):
     return (prefix + "_" + base) if prefix else base
 
@@ -883,7 +894,7 @@ def stream_sample(samtools, bam, regions, ref_lens, args, sample, anon,
             # either truncating it or running it through to_ascii() (which maps
             # anything outside printable ASCII to "?") could break the real name
             # into a form a later replace() would no longer match.
-            err = redact(err, sample, anon)
+            err = strip_paths(redact(err, sample, anon))
             err = " ".join(to_ascii(err.replace("\r", " ").replace("\n", " ")).split())
             return None, "samtools view rc=%d %s" % (rc, err[:160] or "no stderr")
     return accs, ""

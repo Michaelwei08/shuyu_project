@@ -1,14 +1,14 @@
-# Viral sequencing analysis suite (a1 .. a10)
+# Viral sequencing analysis suite (a1 .. a12)
 
-Ten standalone modules that turn the existing per-sample count tables, idxstats
+Twelve standalone modules that turn the existing per-sample count tables, idxstats
 and BAMs of the shuyu runs into the tables and figures behind the panel report.
-Nothing is re-aligned here: a1 .. a4 and a7 read text tables, a5 .. a7 and a10 may
-stream BAMs through `samtools view`, a8 only reshapes the `.tsv` files the others
+Nothing is re-aligned here: a1 .. a4 and a7 read text tables, a5 .. a7 and a10 .. a12
+may stream BAMs through `samtools view`, a8 only reshapes the `.tsv` files the others
 wrote, and a9 reshapes a7's burden table against a clinical CD4 column.
 
-**a1 .. a8 are the default run. a9 and a10 are optional follow-ups** and are
-skipped by `run_all.sh` unless their extra input exists (a9 needs a CD4 table,
-a10 needs BAMs).
+**a1 .. a8 are the default run. a9 .. a12 are optional follow-ups** and are
+skipped by `run_all.sh` unless their extra input exists (a9 needs a CD4 table;
+a10, a11 and a12 each need BAMs).
 
 Python standard library only, except a8, which imports matplotlib (Agg backend).
 No network access. Every module writes tab-separated, pure-ASCII output into
@@ -34,17 +34,25 @@ stop the others, and the failures are listed in the closing summary (the script
 exits 1 if any step failed). Override with `RUNS_ROOT=`, `PYTHON=`, `SAMTOOLS=`,
 or run a subset with `ONLY="a1 a8"`.
 
-a9 and a10 are gated, not run by default:
+a9 .. a12 are gated, not run by default:
 
 ```sh
 # a9 runs only when a CD4 table is pointed at
 CD4_TABLE=/path/to/clinical/cd4.tsv bash run_all.sh
-# a10 runs only when <A10_RUN>/bam/*.bam exists (A10_RUN defaults to the WGS panel run)
+# a10, a11 and a12 run only when <run>/bam/*.bam exists. A10_RUN defaults to the
+# WGS panel run; A11_RUN and A12_RUN default to A10_RUN, and all three use the
+# same gate.
 A10_RUN=/path/to/runs/<a run with bam/> bash run_all.sh
 ```
 
 A gated step that cannot run is reported as `SKIPPED`, never as a failure, so the
 script's exit status is unchanged when the extra inputs are absent.
+
+Order matters for the gated steps: a11 and a12 join a10's tables out of the same
+`--outdir` (a11 takes a10's per-pair verdict, a12 takes a10's pooled hotspots) and
+a12 also reads a7's burden table, so `run_all.sh` runs them after a7 and a10.
+Each of those joins is optional - a missing upstream table is a `WARN`, and the
+module still writes its own tables and exits 0.
 
 ## Modules
 
@@ -60,6 +68,8 @@ script's exit status is unchanged when the extra inputs are absent.
 | `a8_figures.py` | Renders one figure per upstream table, with the finding as the title. Reads only `.tsv`, never a BAM. A missing input is a WARN and a `skipped_missing_input` row in the index. Bar charts are never drawn on a log axis - log/symlog panels use dots and lollipops, and every panel carries direct value labels. | `figures/fig_detection_threshold_sweep`, `fig_reference_comparison_by_category`, `fig_depth_sensitivity_by_category`, `fig_refprofile_coverage_tracks`, `fig_anellovirus_burden`, `fig_coinfection_pairs` (each `.png` + `.svg`), `figures/a8_figure_index.tsv`, `figures/a8_sample_key.tsv` (only if an input carried a real name) |
 | `a9_cd4_correlation.py` | **Optional (needs `--cd4`).** Does the anellovirus burden rise as CD4 falls? Re-expresses a7's burden table against a user-supplied CD4 count: tie-corrected Spearman rho and Kendall tau-b per cohort x metric, clinical CD4 bands (<200 / 200-499 / >=500) with a tie-corrected Kruskal-Wallis, and a Mann-Whitney on CD4 by a7's richness>=3 cut. Standard library only, no figures. Without `--cd4` it writes only the input template and exits 0. **The pooled HIV+HL row largely restates a7's group difference - the HIV-only row is the informative one.** | `cd4_anello_correlation.tsv`, `cd4_anello_strata.tsv`, `cd4_anello_richness_contrast.tsv`, `cd4_anello_joined.tsv`, `cd4_input_template.tsv` (only when no usable CD4 table), `a9_cd4_sample_key.tsv` (only when the CD4 table used a real name) |
 | `a10_anello_read_audit.py` | **Optional (needs BAMs).** Is the low-count anellovirus signal real virus or cross-mapping? Streams each BAM over its anellovirus references and scores per (sample, reference): pile-up (`max_window_fraction` over a sliding `--window`), duplicate POS+CIGAR fraction, breadth, MAPQ, soft clip, low complexity, then a `too_few_reads` / `pileup_like` / `duplicate_like` / `real_like` / `indeterminate` verdict. Adds a pooled relative-position distribution per group, a shared-hotspot table per reference, and per-sample Mann-Whitney + Fisher HIV vs HL. Chimpanzee-isolate references are a built-in negative control. **Below `--min-reads` nothing is called either way.** | `anello_read_audit_by_pair.tsv`, `anello_read_audit_by_group.tsv`, `anello_read_audit_pooled_positions.tsv`, `anello_read_audit_sample_key.tsv` (only when a BAM was found) |
+| `a11_anello_read_forensics.py` | **Optional (needs BAMs).** a10 showed *that* the anellovirus reads behave like artefact; a11 asks *what they are*, from the BAM alone. Streams every read on an anellovirus reference and tests five mechanisms: soft clips matched against an embedded Illumina adapter/primer table (TruSeq R1/R2 and their stem, Nextera/Tn5 mosaic end, P5/P7, reverse complements, polyG/A/C/T), 3-mer entropy + homopolymer + DUST complexity of the aligned segment vs the clipped segment separately, mate really in the human genome, `AS == XS` equally-good alternatives (and `XA` hits), and alignment inside the `--utr-lo`/`--utr-hi` window. Collapses clips to a boundary-anchored key and reports the commonest, with how many distinct samples *and* references each recurs in. Chimpanzee-isolate references are the paired negative control (Wilcoxon), with Mann-Whitney/Fisher HIV vs HL beside it. **A recurrent clip key is a library/probe signature, not patient virus - BLAST it before naming it.** | `a11_forensics_by_pair.tsv`, `a11_forensics_by_group.tsv`, `a11_clip_sequences.tsv`, `a11_forensics_by_read.tsv` (only with `--emit-reads`), `a11_forensics_sample_key.tsv` (only when a BAM was found) |
+| `a12_anello_utr_exclusion.py` | **Optional (needs BAMs).** Does a7's HIV vs HL anellovirus difference survive when every read that could come from the conserved terminal UTR is removed? Re-counts the same BAMs under a **cumulative** six-rung filter - rung 0 all reads, 1 drop anything overlapping the relative `--utr-lo`..`--utr-hi` window, 2 one read per distinct POS+CIGAR, 3 k-mer Shannon entropy >= `--min-entropy`, 4 `AS > XS` (a tie is dropped), 5 require >= `--min-distinct-positions` non-overlapping segments per (sample, reference) - where **each rung filters only what the previous rung left, so the reported counts are monotonically non-increasing**. Re-runs a7's headline Fisher (richness >= `--richness-cut`) and Mann-Whitney (burden) at every rung, sweeps the UTR window (`--sweep-lo`, plus disabled), and carries the chimpanzee arm as the residual false-positive rate. **Surviving the filter is necessary, not sufficient: nothing is realigned, and rung 1 also removes a true infection represented only through its UTR.** | `a12_utr_exclusion_ladder.tsv`, `a12_utr_exclusion_by_sample.tsv`, `a12_utr_exclusion_group_test.tsv`, `a12_utr_window_sweep.tsv`, `a12_utr_exclusion_sample_key.tsv` (only when a BAM was found) |
 
 ## Anonymisation rule
 
@@ -70,9 +80,12 @@ sample identifier is `*_sample_key.tsv`.**
   processes, so the mapping is stable within a run. Width grows past 99 samples
   (`S001 ..`). a8 passes through labels that are already `S<digits>` and numbers
   any new real names after them. Two exceptions: **a9 does not mint ids at all** -
-  it reuses a7's, joining through `a7_virome_sample_key.tsv` - and **a10 mints its
-  own three-digit `S001 .. Snnn`**, which therefore do NOT equal a7's two-digit
-  ids; a10 carries an `a7_sample_anon` column so the two can still be joined.
+  it reuses a7's, joining through `a7_virome_sample_key.tsv` - and **a10, a11 and
+  a12 mint their own three-digit `S001 .. Snnn`**, which therefore do NOT equal
+  a7's two-digit ids; a10 and a12 carry an `a7_sample_anon` column and a11 carries
+  an `a10_sample_anon` column so the tables can still be joined. a10, a11 and a12
+  use the same sorted-name rule, so their ids agree whenever they process the same
+  BAM set - which is what `run_all.sh` gives them.
 - Each key file starts with the header comment
   `# CONTAINS IDENTIFIERS - DO NOT COMMIT OR EMAIL`
   followed by the generating module and date. **Do not commit or email these files.**
@@ -84,12 +97,16 @@ sample identifier is `*_sample_key.tsv`.**
   lower-case cohort prefix `wgs_60samples_hiv_hl_` does not, which is what keeps
   the HL group from being swallowed by HIV). Only if that misses does the
   case-insensitive fallback apply: `_hiv` -> `HIV`, `_hl` -> `HL`, `tcl` or
-  `targeted_htlv` -> `TCL`, otherwise `NA`. a2, a5, a6, a7 and a10 fall back to the
-  run directory name for `TCL` when the sample name is uninformative.
+  `targeted_htlv` -> `TCL`, otherwise `NA`. a2, a5, a6, a7, a10, a11 and a12 fall
+  back to the run directory name for `TCL` when the sample name is uninformative.
 - Warnings printed to stdout (and therefore to `<outdir>/logs/`) are anonymised
   too: BAM paths, idxstats paths and samtools error text are masked to the anon id
   or to a literal `<sample>` placeholder before printing, so a run log can be
-  shared. Skim it anyway before sending it outside the group.
+  shared. In a11 and a12, samtools' own stderr additionally has every
+  path-shaped token replaced with a literal `<path>` before it is printed, because
+  samtools echoes the BAM path and masking the sample name alone would still leak
+  the controlled-data mount. Skim the log anyway before sending it outside the
+  group.
 - No output is derived from PHI, and no controlled-access data belongs in this
   directory. See the workspace `CLAUDE.md`.
 
@@ -119,6 +136,27 @@ sample identifier is `*_sample_key.tsv`.**
   so only the per-sample Mann-Whitney and Fisher rows are tests. A shared hotspot
   argues artefact only when the agreeing pairs are also concentrated; read
   `median_max_window_fraction_at_hotspot` with it.
+- **a11 names nothing and realigns nothing.** A clip is called an adapter only by
+  its match to the embedded table; BLAST it before calling it a capture probe. A
+  read that fails all five tests is *not* thereby real virus - it only means none
+  of the five tested mechanisms fired. `--utr-lo`/`--utr-hi` is a coordinate
+  window reported as such, not an annotated UTR. Pooled per-group fractions are
+  weighted by whichever sample carries the most reads and are descriptive only;
+  no p value is corrected for multiple testing.
+- **a12 tests one mechanism, and its ladder is one-directional.** Surviving the
+  filter is necessary but not sufficient to call real virus - a survivor can
+  still be cross-mapped from an anellovirus the panel does not carry, another
+  small circular DNA virus, or an unmasked human repeat. Rung 1 is conservative
+  *against* detection by construction: a true infection represented in the panel
+  only through its conserved UTR is removed too, which is what the window sweep
+  and the chimpanzee arm are there to quantify. The rungs are cumulative, so read
+  `reads_dropped_vs_previous_rung` as the marginal cost of that rung given the
+  ones above it, not as an independent count.
+- **The small-n tests in a9 .. a12 are normal approximations.** The
+  standard-library Mann-Whitney is tie-corrected with a continuity correction,
+  not exact; at n = 3 vs 3 with complete separation it reports p ~ 0.047 where
+  the exact two-sided permutation p is 0.10. Fisher is exact. Read the
+  Mann-Whitney p as approximate whenever a group has fewer than ~8 samples.
 - Runs may legitimately produce header-only tables (no samtools, no BAM index,
   missing run directory). That is a WARN plus exit 0, by design, so the
   orchestrator can keep going.

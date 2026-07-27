@@ -7,11 +7,13 @@
 # one failing step does not stop the others, and the failures are listed at the
 # end. Exit status is 0 only when every step succeeded.
 #
-# a9 and a10 are OPTIONAL follow-ups and are not part of the default run. Each is
-# gated on an input the default run does not have, and is reported as SKIPPED --
-# never as a failure -- when that input is absent:
+# a9, a10, a11 and a12 are OPTIONAL follow-ups and are not part of the default
+# run. Each is gated on an input the default run does not have, and is reported
+# as SKIPPED -- never as a failure -- when that input is absent:
 #   a9   needs a clinical CD4 table   -> set CD4_TABLE=<file>
 #   a10  needs BAMs                   -> needs <A10_RUN>/bam/*.bam to exist
+#   a11  needs BAMs                   -> needs <A11_RUN>/bam/*.bam to exist
+#   a12  needs BAMs                   -> needs <A12_RUN>/bam/*.bam to exist
 #
 # USAGE
 #   bash run_all.sh                       # documented defaults (a1..a8)
@@ -27,6 +29,8 @@
 #   CD4_TABLE   clinical CD4 table for a9         (unset -> a9 is SKIPPED)
 #   A10_RUN     run directory a10 audits          (default: the WGS panel run;
 #                                                  no bam/*.bam -> a10 SKIPPED)
+#   A11_RUN     run directory a11 audits          (default: $A10_RUN, same gate)
+#   A12_RUN     run directory a12 re-counts       (default: $A10_RUN, same gate)
 #   ONLY        space-separated step ids to run    e.g. ONLY="a1 a8"
 #
 # IDENTIFIERS
@@ -34,7 +38,7 @@
 #   including this script's per-step logs, uses the anonymous ids S01..Snn.
 #   Do not commit or email the key files or the logs directory without checking.
 #
-# Date: 2026-07-26
+# Date: 2026-07-27
 set -euo pipefail
 
 # --------------------------------------------------------------------------- #
@@ -99,6 +103,8 @@ DETECTION_THRESHOLD=100
 # optional-step inputs (see the gates further down)
 CD4_TABLE="${CD4_TABLE:-}"
 A10_RUN="${A10_RUN:-$WGS_PANEL}"
+A11_RUN="${A11_RUN:-$A10_RUN}"
+A12_RUN="${A12_RUN:-$A10_RUN}"
 
 if ! mkdir -p "$OUTDIR" "$FIGDIR" "$LOGDIR"; then
     echo "FATAL: cannot create the output directory ${OUTDIR}" >&2
@@ -173,6 +179,26 @@ maybe_step() {
         return 0
     fi
     run_step "$id" "$@"
+    return 0
+}
+
+# Gate shared by every BAM-driven optional step (a10, a11, a12): echoes the
+# literal "ok" when the run directory exists and holds at least one bam/*.bam,
+# otherwise the reason the step cannot run. One function so the three can never
+# drift apart, and so none of them can turn a missing BAM into a failure.
+bam_gate() {
+    local run_dir="$1"
+    if [ ! -d "$run_dir" ]; then
+        echo "run directory ${run_dir} is not present"
+        return 0
+    fi
+    # an unmatched glob stays literal, so [0] always exists and -e settles it
+    local -a found=( "${run_dir}"/bam/*.bam )
+    if [ ! -e "${found[0]}" ]; then
+        echo "no BAM at ${run_dir}/bam/*.bam"
+        return 0
+    fi
+    echo "ok"
     return 0
 }
 
@@ -266,8 +292,9 @@ run_step a7 "What is the anellovirus burden and coinfection structure?" \
     --samtools "$SAMTOOLS"
 
 # --------------------------------------------------------------------------- #
-# a9, a10 -- OPTIONAL follow-ups, gated on inputs the default run does not have.
-# Both read a7's outputs out of "$OUTDIR", so they must come after a7.
+# a9 .. a12 -- OPTIONAL follow-ups, gated on inputs the default run does not
+# have. They all read a7's (and a11/a12 also a10's) outputs out of "$OUTDIR",
+# so they must come after a7, and a11/a12 after a10.
 # --------------------------------------------------------------------------- #
 A9_GATE="ok"
 if [ -z "$CD4_TABLE" ]; then
@@ -284,16 +311,7 @@ maybe_step a9 "$A9_GATE" \
     --cd4 "$CD4_TABLE" \
     --a7-prefix a7_virome
 
-A10_GATE="ok"
-if [ ! -d "$A10_RUN" ]; then
-    A10_GATE="run directory ${A10_RUN} is not present"
-else
-    # an unmatched glob stays literal, so [0] always exists and -e settles it
-    A10_BAMS=( "${A10_RUN}"/bam/*.bam )
-    if [ ! -e "${A10_BAMS[0]}" ]; then
-        A10_GATE="no BAM at ${A10_RUN}/bam/*.bam"
-    fi
-fi
+A10_GATE="$(bam_gate "$A10_RUN")"
 
 maybe_step a10 "$A10_GATE" \
     "Is the low-count anellovirus signal real virus or cross-mapping?" \
@@ -303,6 +321,34 @@ maybe_step a10 "$A10_GATE" \
     --indir "$OUTDIR" \
     --outdir "$OUTDIR" \
     --prefix anello_read_audit \
+    --samtools "$SAMTOOLS"
+
+# a11 joins a10's per-pair verdicts out of "$OUTDIR" as context, so it runs
+# after a10; it degrades to a WARN and still exits 0 if a10 was skipped.
+A11_GATE="$(bam_gate "$A11_RUN")"
+
+maybe_step a11 "$A11_GATE" \
+    "Do the anellovirus reads carry adapter, low-complexity or mismapping signatures?" \
+    "${HERE}/a11_anello_read_forensics.py" \
+    --run "$A11_RUN" \
+    --refmap "$PANEL_REFMAP" \
+    --indir "$OUTDIR" \
+    --outdir "$OUTDIR" \
+    --prefix a11_forensics \
+    --samtools "$SAMTOOLS"
+
+# a12 reads a7's burden table and a10's pooled positions out of "$OUTDIR", so
+# it runs after both; each is optional and only WARNs when absent.
+A12_GATE="$(bam_gate "$A12_RUN")"
+
+maybe_step a12 "$A12_GATE" \
+    "Does the HIV vs HL anellovirus difference survive removing every UTR-compatible read?" \
+    "${HERE}/a12_anello_utr_exclusion.py" \
+    --run "$A12_RUN" \
+    --refmap "$PANEL_REFMAP" \
+    --indir "$OUTDIR" \
+    --outdir "$OUTDIR" \
+    --prefix a12 \
     --samtools "$SAMTOOLS"
 
 # --------------------------------------------------------------------------- #
