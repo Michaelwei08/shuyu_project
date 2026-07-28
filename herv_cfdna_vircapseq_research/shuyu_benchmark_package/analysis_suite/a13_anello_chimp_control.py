@@ -54,22 +54,32 @@ THE THREE TESTS
       the human references (closed form over all C(n,3) subsets, no sampling).
       Paired per sample, then an exact binomial sign test.
 
-  3 MATE-PAIRING SPLIT (optional, --a11-pairs). DESCRIPTIVE ONLY.
-      a11 records, per (sample, reference), the fraction of reads whose mate
-      lands on the SAME anellovirus reference, plus MAPQ and clipping, and flags
-      which references are chimp. This pulls that split out of
-      a11_forensics_by_pair.tsv so it sits beside tests 1 and 2.
+  3 READ QUALITY VS THE NEGATIVE CONTROL (optional, --a11-groups).
+      Surfaces a11's own refset_contrast rows: human anellovirus references
+      against the chimpanzee control, PAIRED Wilcoxon signed-rank within each
+      sample carrying reads on both sets.
 
-      DO NOT read it as evidence either way. It was added on the expectation
-      that human references would pair better than chimp ones, and that
-      expectation was wrong in principle: when a real read PAIR cross-maps onto
-      a chimp reference, both mates move together, so chimp reads pair exactly
-      as tidily as human ones whether they are derivative or artefactual. Good
-      pairing shows the reads are genuine paired fragments of something; it is
-      blind to which reference is the true source. On the real data (2026-07-28)
-      human and chimp were indistinguishable on every metric here, which is
-      what this argument predicts and which discriminates nothing. Kept as a
-      sanity check on read quality only.
+      This is diagnostic, in one direction. Under DERIVATIVE cross-mapping a
+      genuine read maps best to its human reference and reaches a chimp
+      reference only as a worse, more ambiguous alignment, so the human set
+      should win on MAPQ, clipping and alignment entropy. Under a SHARED
+      artefact the two sets should look alike. On the real data (2026-07-28)
+      a11 gives median MAPQ 57 vs 40 (p = 4.4e-04), reads clipped 0.78 vs 1.00
+      (p = 1.0e-04) and alignment entropy 5.13 vs 4.50 (p = 2.0e-05) -- all
+      three favour the human references.
+
+      MATE PAIRING IS NOT DIAGNOSTIC and is not scored: when a real pair
+      cross-maps onto a chimp reference both mates move together, so chimp
+      reads pair as tidily as human ones either way (a11: 0.753 vs 0.792,
+      p = 0.71, as predicted).
+
+      HISTORY, because the mistake is instructive. a13 originally recomputed
+      this from a11_forensics_by_pair.tsv with an UNPAIRED Mann-Whitney over
+      (sample, reference) rows. With 20 human references against 3 chimpanzee
+      ones, the human distribution is dominated by marginal references drawn
+      from different samples than the chimp rows, and that manufactured a null
+      (MAPQ 42.25 vs 43.0, p = 0.26) out of a real 17-point paired gap. Do not
+      recompute this contrast here; read a11's paired version.
 
 WHAT THIS CAN AND CANNOT SHOW
   CAN: show whether chimp signal ever occurs without human signal; whether the
@@ -156,45 +166,49 @@ def fnum(value, digits=4):
 # --------------------------------------------------------------------------- #
 # test 3: reuse a11's per-pair forensics
 # --------------------------------------------------------------------------- #
-MATE_METRIC_CANDIDATES = [
-    "frac_mate_same_anello_ref",
-    "frac_mate_chimp_anello_ref",
-    "frac_mate_HUMAN",
-    "frac_soft_clipped",
-    "median_mapq",
-    "breadth",
-]
+# Metrics where a difference is interpretable, and the direction that favours the
+# human references being a genuine source rather than a cross-mapping sink.
+# +1 = higher is better for human, -1 = lower is better for human.
+A11_DIRECTION = {
+    "median_mapq": +1,
+    "aln_median_entropy3": +1,
+    "frac_reads_clipped": -1,
+    "frac_mapq0": -1,
+    "frac_as_eq_xs": -1,
+}
 
 
-def read_a11_pairs(path):
-    """-> (human_rows, chimp_rows, metrics_present) from a11_forensics_by_pair.tsv."""
+def read_a11_contrast(path):
+    """-> list of (metric, human, chimp, p) from a11_forensics_by_group.tsv.
+
+    a11 already computes this contrast correctly: a PAIRED Wilcoxon signed-rank
+    within each sample carrying reads on both reference sets. a13 must not
+    recompute it from the per-pair table -- an unpaired comparison across a
+    design with 20 human references against 3 chimpanzee ones is dominated by
+    marginal human references drawn from different samples than the chimp rows,
+    which manufactures a null. (That bug was in a13 until 2026-07-28.)
+    """
     if not path or not os.path.isfile(path):
-        return None, None, []
+        return []
     with open(path, newline="", encoding="utf-8", errors="replace") as fh:
         rows = [r for r in csv.DictReader(
             (ln for ln in fh if not ln.startswith("#")), delimiter="\t")]
-    if not rows:
-        return None, None, []
-    if "chimp_flagged" not in rows[0]:
-        sys.stderr.write("WARN: %s has no chimp_flagged column; skipping test 3\n"
+    if not rows or "row_type" not in rows[0]:
+        sys.stderr.write("WARN: %s is not an a11 by_group table; skipping test 3\n"
                          % os.path.basename(path))
-        return None, None, []
-    metrics = [m for m in MATE_METRIC_CANDIDATES if m in rows[0]]
-    human = [r for r in rows if str(r.get("chimp_flagged", "")).strip() in ("0", "", "False", "false")]
-    chimp = [r for r in rows if str(r.get("chimp_flagged", "")).strip() in ("1", "True", "true")]
-    return human, chimp, metrics
-
-
-def numeric(rows, col):
+        return []
     out = []
     for r in rows:
-        raw = (r.get(col) or "").strip()
-        if raw in ("", "NA", "nan"):
+        if (r.get("row_type") or "").strip() != "refset_contrast":
             continue
+        metric = (r.get("label") or "").strip()
         try:
-            out.append(float(raw))
-        except ValueError:
+            h = float(r["value_group1"])
+            c = float(r["value_group2"])
+            p = float(r["p_value"])
+        except (KeyError, TypeError, ValueError):
             continue
+        out.append((metric, h, c, p))
     return out
 
 
@@ -202,9 +216,11 @@ def numeric(rows, col):
 def build_parser():
     ap = a7.build_parser()
     ap.set_defaults(prefix="a13_chimp")
-    ap.add_argument("--a11-pairs", default=None,
-                    help="a11_forensics_by_pair.tsv, enabling the mate-pairing "
-                         "split (test 3). Optional.")
+    ap.add_argument("--a11-groups", "--a11-pairs", dest="a11_groups", default=None,
+                    help="a11_forensics_by_group.tsv, enabling the read-quality "
+                         "contrast (test 3). Optional. Pass the BY_GROUP file: a11 "
+                         "computes the human-vs-chimp contrast paired within sample, "
+                         "which is the correct test.")
     ap.description = "a13: chimpanzee-control tests for the anellovirus signal"
     return ap
 
@@ -310,15 +326,13 @@ def main():
     mw_best = mann_whitney_u(bh[g1], bh[g2]) if bh[g1] and bh[g2] else None
 
     # ---------------------------------------------------------------- test 3
-    hum_rows, chi_rows, metrics = read_a11_pairs(args.a11_pairs)
-    mate_results = []
-    if hum_rows is not None and chi_rows:
-        for m in metrics:
-            hx, cx = numeric(hum_rows, m), numeric(chi_rows, m)
-            if not hx or not cx:
-                continue
-            res = mann_whitney_u(hx, cx)
-            mate_results.append((m, res))
+    contrast = read_a11_contrast(args.a11_groups)
+    favours_human = [(m, h, c, p) for (m, h, c, p) in contrast
+                     if p < 0.05 and m in A11_DIRECTION
+                     and (h - c) * A11_DIRECTION[m] > 0]
+    favours_chimp = [(m, h, c, p) for (m, h, c, p) in contrast
+                     if p < 0.05 and m in A11_DIRECTION
+                     and (h - c) * A11_DIRECTION[m] < 0]
 
     # ---------------------------------------------------------------- output
     if not os.path.isdir(args.outdir):
@@ -360,14 +374,20 @@ def main():
             "value": "%s vs %s" % (fnum(mw_best["median1"], 1), fnum(mw_best["median2"], 1)),
             "p": fp(mw_best["p"]),
             "detail": "Mann-Whitney, rank-biserial %s" % fnum(mw_best["effect_r"], 3)})
-    for m, res in mate_results:
+    for m, h, c, p in contrast:
+        direction = A11_DIRECTION.get(m)
+        if direction is None:
+            verdict = "not directional"
+        elif p >= 0.05:
+            verdict = "indistinguishable from the negative control"
+        else:
+            verdict = "favours human" if (h - c) * direction > 0 else "favours chimp"
         trows.append({
-            "test": "3_mate_pairing",
+            "test": "3_read_quality_a11",
             "statistic": "%s human vs chimp references" % m,
-            "value": "%s vs %s" % (fnum(res["median1"], 4), fnum(res["median2"], 4)),
-            "p": fp(res["p"]),
-            "detail": "n_human_pairs=%d n_chimp_pairs=%d rank-biserial %s"
-                      % (res["n1"], res["n2"], fnum(res["effect_r"], 3))})
+            "value": "%s vs %s" % (fnum(h, 4), fnum(c, 4)),
+            "p": fp(p),
+            "detail": "a11 paired Wilcoxon signed-rank within sample; %s" % verdict})
     test_header = ["test", "statistic", "value", "p", "detail"]
     a7.write_tsv(out("tests.tsv"), comments, test_header,
                  [[str(t[k]) for k in test_header] for t in trows])
@@ -415,18 +435,26 @@ def main():
         print("          VERDICT: no advantage for the human references once set size is")
         print("                   equalised. This supports the cautious reading.")
     print("")
-    if mate_results:
-        print("TEST 3  read quality, human vs chimpanzee references (a11) -- DESCRIPTIVE")
-        for m, res in mate_results:
-            print("          %-28s human %s  chimp %s   p = %s"
-                  % (m, fnum(res["median1"], 4), fnum(res["median2"], 4), fp(res["p"])))
-        print("          This does NOT discriminate. A real pair cross-mapping onto a")
-        print("          chimp reference moves BOTH mates, so chimp reads pair as tidily")
-        print("          as human ones either way. Similar values here are expected and")
-        print("          are not evidence for or against the derivative reading; a large")
-        print("          human advantage would have been informative, its absence is not.")
+    if contrast:
+        print("TEST 3  read quality vs the negative control (a11, paired within sample)")
+        for m, h, c, p in contrast:
+            mark = ""
+            if m in A11_DIRECTION and p < 0.05:
+                mark = ("  <-- favours human" if (h - c) * A11_DIRECTION[m] > 0
+                        else "  <-- favours chimp")
+            print("          %-26s human %-9s chimp %-9s p = %-11s%s"
+                  % (m, fnum(h, 4), fnum(c, 4), fp(p), mark))
+        print("")
+        print("          %d directional metric(s) favour the human references, %d favour"
+              % (len(favours_human), len(favours_chimp)))
+        print("          the chimpanzee control. Under DERIVATIVE cross-mapping a genuine")
+        print("          read maps best to its human reference and reaches a chimp")
+        print("          reference only as a worse, more ambiguous alignment, so a human")
+        print("          advantage on MAPQ, clipping and entropy is predicted. Under a")
+        print("          SHARED artefact the two sets should look alike. Mate-pairing is")
+        print("          NOT diagnostic either way: a cross-mapping pair moves both mates.")
     else:
-        print("TEST 3  skipped -- pass --a11-pairs a11_forensics_by_pair.tsv to run it.")
+        print("TEST 3  skipped -- pass --a11-groups a11_forensics_by_group.tsv to run it.")
     print("")
 
     t2_ok = (p_sign is not None and p_sign < 0.05 and wins > losses)
