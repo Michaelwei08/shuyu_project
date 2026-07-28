@@ -629,9 +629,24 @@ def list_bams(run_dir, bam_glob):
                   if os.path.isfile(p))
 
 
+# Suffixes some pipelines add to the BAM basename but not to the sibling
+# idxstats / count-table sample name. Stripped when deriving a sample id.
+BAM_NAME_SUFFIXES = (".retrovirus", ".retro", ".markdup", ".dedup",
+                     ".sorted", ".filtered")
+
+
 def sample_of_bam(bam_path):
     base = os.path.basename(bam_path)
-    return base[:-4] if base.endswith(".bam") else base
+    if base.endswith(".bam"):
+        base = base[:-4]
+    # Pipeline BAMs are named <sample>.retrovirus.bam while the idxstats
+    # beside them are <sample>.idxstats.tsv. Leaving the suffix on makes
+    # every BAM-to-idxstats join fail silently (empty RPM denominators).
+    for _suf in BAM_NAME_SUFFIXES:
+        if base.endswith(_suf):
+            base = base[: -len(_suf)]
+            break
+    return base
 
 
 def bam_is_indexed(bam):

@@ -99,6 +99,24 @@ KEY_WARNING = "# CONTAINS IDENTIFIERS - DO NOT COMMIT OR EMAIL"
 
 # ---------------------------------------------------------------- utilities
 
+# Suffixes some pipelines add to the BAM basename but not to the sibling
+# idxstats / count-table sample name. Stripped when deriving a sample id.
+BAM_NAME_SUFFIXES = (".retrovirus", ".retro", ".markdup", ".dedup",
+                     ".sorted", ".filtered")
+
+
+def sample_from_bam(bam_path):
+    """Sample id from a BAM path, minus any pipeline-added suffix."""
+    base = os.path.basename(bam_path)
+    if base.endswith(".bam"):
+        base = base[:-4]
+    for _suf in BAM_NAME_SUFFIXES:
+        if base.endswith(_suf):
+            base = base[: -len(_suf)]
+            break
+    return base
+
+
 def warn(what, path):
     """The suite's standard missing-input line."""
     print("WARN: %s missing at %s, skipping" % (what, path))
@@ -535,7 +553,7 @@ def process_run(run_dir, args, samtools, anon):
     sample_rows, real_names = [], []
     n_prefiltered = 0
     for bam in bams:
-        sample = os.path.basename(bam)[:-4]
+        sample = sample_from_bam(bam)
         sid = anon.get(sample, "S??")
         real_names.append(sample)
         row = {
@@ -735,7 +753,7 @@ def main():
         if not os.path.isdir(run_dir):
             continue
         for bam in list_run_bams(run_dir, args)[1]:
-            pre_names.append(os.path.basename(bam)[:-4])
+            pre_names.append(sample_from_bam(bam))
     anon = anon_ids(pre_names)
 
     all_rows, all_names = [], []
