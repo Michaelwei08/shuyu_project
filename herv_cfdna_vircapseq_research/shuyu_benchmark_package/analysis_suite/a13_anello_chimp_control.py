@@ -54,13 +54,22 @@ THE THREE TESTS
       the human references (closed form over all C(n,3) subsets, no sampling).
       Paired per sample, then an exact binomial sign test.
 
-  3 MATE-PAIRING SPLIT (optional, --a11-pairs).
-      a11 already records, per (sample, reference), the fraction of reads whose
-      mate lands on the SAME anellovirus reference, and flags which references
-      are chimp. Random artefact does not pair that way, so this is the single
-      most decisive per-read discriminator available. a11 reports the human vs
-      chimp contrast in aggregate; this pulls the same split out of
+  3 MATE-PAIRING SPLIT (optional, --a11-pairs). DESCRIPTIVE ONLY.
+      a11 records, per (sample, reference), the fraction of reads whose mate
+      lands on the SAME anellovirus reference, plus MAPQ and clipping, and flags
+      which references are chimp. This pulls that split out of
       a11_forensics_by_pair.tsv so it sits beside tests 1 and 2.
+
+      DO NOT read it as evidence either way. It was added on the expectation
+      that human references would pair better than chimp ones, and that
+      expectation was wrong in principle: when a real read PAIR cross-maps onto
+      a chimp reference, both mates move together, so chimp reads pair exactly
+      as tidily as human ones whether they are derivative or artefactual. Good
+      pairing shows the reads are genuine paired fragments of something; it is
+      blind to which reference is the true source. On the real data (2026-07-28)
+      human and chimp were indistinguishable on every metric here, which is
+      what this argument predicts and which discriminates nothing. Kept as a
+      sanity check on read quality only.
 
 WHAT THIS CAN AND CANNOT SHOW
   CAN: show whether chimp signal ever occurs without human signal; whether the
@@ -407,11 +416,15 @@ def main():
         print("                   equalised. This supports the cautious reading.")
     print("")
     if mate_results:
-        print("TEST 3  mate pairing, human vs chimpanzee references (from a11)")
+        print("TEST 3  read quality, human vs chimpanzee references (a11) -- DESCRIPTIVE")
         for m, res in mate_results:
             print("          %-28s human %s  chimp %s   p = %s"
                   % (m, fnum(res["median1"], 4), fnum(res["median2"], 4), fp(res["p"])))
-        print("          Random artefact does not place mates on the same reference.")
+        print("          This does NOT discriminate. A real pair cross-mapping onto a")
+        print("          chimp reference moves BOTH mates, so chimp reads pair as tidily")
+        print("          as human ones either way. Similar values here are expected and")
+        print("          are not evidence for or against the derivative reading; a large")
+        print("          human advantage would have been informative, its absence is not.")
     else:
         print("TEST 3  skipped -- pass --a11-pairs a11_forensics_by_pair.tsv to run it.")
     print("")
