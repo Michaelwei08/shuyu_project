@@ -83,17 +83,24 @@ class Game:
         if self.over:
             return []
         moves: list[Move] = []
+        occupied = set(self.board)
         for source, piece in self.board.items():
             if piece.owner != player or not piece.kind.movable:
                 continue
-            moves.extend(Move(source, target) for target in self._destinations(source))
+            moves.extend(
+                Move(source, target)
+                for target in self._destinations(source, occupied)
+            )
         return moves
 
-    def _destinations(self, source: Position) -> set[Position]:
+    def _destinations(
+        self, source: Position, occupied: set[Position] | None = None
+    ) -> set[Position]:
         piece = self.board[source]
         if source in HEADQUARTERS:
             return set()
-        occupied = set(self.board)
+        if occupied is None:
+            occupied = set(self.board)
         destinations = set(road_neighbors(source))
         if piece.kind == PieceKind.ENGINEER:
             destinations |= engineer_rail_destinations(source, occupied)

@@ -86,7 +86,16 @@ class HeuristicBot:
         candidates = [move for score, move in scored if score >= best - 1e-9]
         return self.rng.choice(candidates)
 
-    def _score(self, game: Game, move: Move, owner: Owner) -> float:
+    def _score(
+        self, game: Game, move: Move, owner: Owner, quick: bool = False
+    ) -> float:
+        """Score one move.
+
+        `quick` drops the mobility term, which is the only part that has to
+        simulate the move. That simulation dominated search time when used to
+        rank the opponent's replies inside a rollout, where all we need is a
+        rough top-K ordering.
+        """
         piece = game.board[move.src]
         target = game.board.get(move.dst)
         weights = self.weights
@@ -127,7 +136,7 @@ class HeuristicBot:
             else:
                 score -= _piece_value(piece.kind) * weights.unknown_risk
 
-        if target is None or target.revealed:
+        if not quick and weights.mobility and (target is None or target.revealed):
             simulated = game.clone()
             simulated.turn = owner
             simulated.apply(move)

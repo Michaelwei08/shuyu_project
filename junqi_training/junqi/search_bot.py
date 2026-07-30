@@ -96,7 +96,10 @@ class SearchBot:
         # than trusting a single greedy reply.
         reply_bot = HeuristicBot(self.weights, seed=sample_seed ^ 0xA5A5A5A5)
         ranked = sorted(
-            ((reply_bot._score(sampled, reply, opponent), reply) for reply in replies),
+            (
+                (reply_bot._score(sampled, reply, opponent, quick=True), reply)
+                for reply in replies
+            ),
             reverse=True,
             key=lambda item: item[0],
         )[: self.reply_width]
