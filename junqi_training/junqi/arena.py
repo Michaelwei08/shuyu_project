@@ -339,6 +339,15 @@ class Comparison:
     def significant(self) -> bool:
         return self.p_value < 0.05 and self.mean_difference > 0
 
+    @property
+    def detectable(self) -> float:
+        """Smallest true improvement this sample size could have found.
+
+        Worth printing: if it is larger than any plausible gain, a rejection
+        says nothing about the candidate, only about the sample size.
+        """
+        return 1.645 * self.standard_error
+
     def format(self) -> str:
         return (
             f"candidate {self.candidate.score:.3f} (win {self.candidate.win_rate:.1%}) "
@@ -346,7 +355,8 @@ class Comparison:
             f"(win {self.incumbent.win_rate:.1%})\n"
             f"paired difference {self.mean_difference:+.4f} "
             f"+/- {self.standard_error:.4f} (SE), p = {self.p_value:.4f}, "
-            f"n = {self.candidate.games} games each"
+            f"n = {self.candidate.games} games each\n"
+            f"minimum detectable improvement at this n: {self.detectable:+.4f}"
         )
 
 

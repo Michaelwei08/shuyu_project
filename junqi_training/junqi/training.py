@@ -58,21 +58,38 @@ CEILINGS = {"engineer_waste": 0.0}
 FROZEN = {"noise", "eval_terminal"}
 
 
-def mutate(weights: BotWeights, rng: random.Random, scale: float) -> BotWeights:
+def mutate(
+    weights: BotWeights,
+    rng: random.Random,
+    scale: float,
+    coordinates: int = 4,
+) -> BotWeights:
+    """Perturb a few coefficients, not all of them.
+
+    Two earlier mistakes, both of which made every candidate worse:
+
+    * a 35% step on all 22 weights at once is a huge jump in 22 dimensions
+      away from an already-decent point, so essentially nothing survived;
+    * the step floor of `max(0.35, abs(value))` meant a coefficient of 0.12 got
+      a step wider than itself, and the `FLOORS` clamp then pinned about half
+      of those draws to exactly zero -- a systematic bias toward 0 for every
+      small weight rather than a search.
+    """
+    names = [
+        descriptor.name
+        for descriptor in fields(weights)
+        if descriptor.name not in FROZEN
+    ]
     values: dict[str, float] = {}
-    for descriptor in fields(weights):
-        value = getattr(weights, descriptor.name)
-        if descriptor.name in FROZEN:
-            values[descriptor.name] = value
-            continue
-        # Scale the step to the coefficient so large terms are not frozen and
-        # small ones are not blown away.
-        step = rng.gauss(0.0, scale * max(0.35, abs(value)))
-        values[descriptor.name] = value + step
-    for name, floor in FLOORS.items():
-        values[name] = max(floor, values[name])
-    for name, ceiling in CEILINGS.items():
-        values[name] = min(ceiling, values[name])
+    for name in rng.sample(names, min(coordinates, len(names))):
+        value = getattr(weights, name)
+        step = rng.gauss(0.0, scale * max(0.02, abs(value)))
+        candidate = value + step
+        if name in FLOORS:
+            candidate = max(FLOORS[name], candidate)
+        if name in CEILINGS:
+            candidate = min(CEILINGS[name], candidate)
+        values[name] = candidate
     values["noise"] = max(0.01, weights.noise * 0.98)
     return replace(weights, **values)
 
@@ -90,7 +107,7 @@ def train(
     rng = random.Random(seed)
     incumbent = start or BotWeights()
     pool = standard_pool(history=discover_history(archive_dir))
-    scale = 0.35
+    scale = 0.25
     accepted = 0
 
     for generation in range(1, generations + 1):
@@ -106,7 +123,7 @@ def train(
         # Let anything not clearly worse through to the real test; screening is
         # a cost filter, not a decision.
         if screen.mean_difference <= -0.01:
-            scale *= 0.97
+            scale = max(0.04, scale * 0.9)
             continue
 
         accept_seeds = seeds_for(accept_games, pool, offset=seed + generation * 7_919)
@@ -120,9 +137,11 @@ def train(
             incumbent.save(output)
             pool = standard_pool(history=discover_history(archive_dir))
             print(f"  ACCEPTED -> {output} (archived as {label})", flush=True)
+            # 1/5 success rule: widen after a hit, shrink while missing.
+            scale = min(0.6, scale * 1.3)
         else:
             print("  rejected (not significant)", flush=True)
-        scale *= 0.97
+            scale = max(0.04, scale * 0.9)
 
     incumbent.save(output)
     print(f"\n{accepted}/{generations} accepted. Model saved: {output.resolve()}")
