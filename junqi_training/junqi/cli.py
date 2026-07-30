@@ -1,0 +1,191 @@
+from __future__ import annotations
+
+import argparse
+import random
+from pathlib import Path
+
+from .board import CAMPS, HEADQUARTERS, RAILWAYS
+from .bot import BotWeights
+from .deployment import (
+    load_deployment,
+    random_deployment,
+    strategic_deployment,
+    swap_pieces,
+    validate_deployment,
+)
+from .game import Game
+from .search_bot import SearchBot
+from .training import DEFAULT_MODEL
+from .types import Owner, PieceKind, SYMBOLS, parse_move, parse_position
+
+
+def render(game: Game) -> str:
+    lines = ["      A    B    C    D    E"]
+    for row in range(12):
+        cells: list[str] = []
+        for column in range(5):
+            position = (row, column)
+            piece = game.board.get(position)
+            if piece is None:
+                marker = "营" if position in CAMPS else "◎" if position in RAILWAYS else "·"
+                cells.append(f" {marker} ")
+            elif piece.owner == Owner.BOT:
+                cells.append(
+                    "[旗]"
+                    if piece.kind == PieceKind.FLAG and piece.revealed
+                    else "[?]"
+                )
+            else:
+                symbol = SYMBOLS[piece.kind]
+                brackets = ("<", ">") if piece.owner == Owner.HUMAN else ("[", "]")
+                cells.append(f"{brackets[0]}{symbol}{brackets[1]}")
+        hq = (
+            "  大本营"
+            if any((row, column) in HEADQUARTERS for column in range(5))
+            else ""
+        )
+        lines.append(f"{row + 1:>2}  " + "  ".join(cells) + hq)
+    return "\n".join(lines)
+
+
+def arrange_player(game: Game, rng: random.Random) -> bool:
+    print("\n=== 排兵布阵 ===")
+    print("输入 swap A12 B12 交换两枚棋子；random 重新随机；done 确认；quit 退出。")
+    print("限制：军旗在大本营，地雷在最后两排，炸弹不能在最前排。\n")
+    while True:
+        print(render(game))
+        raw = input("\n布阵 > ").strip()
+        command = raw.lower()
+        if command in {"done", "d", "开始"}:
+            errors = validate_deployment(game.board, Owner.HUMAN)
+            if errors:
+                print("当前阵型不合法：" + "；".join(errors))
+                continue
+            print("布阵完成，对局开始！\n")
+            return True
+        if command in {"random", "r", "随机"}:
+            game.board = {
+                position: piece
+                for position, piece in game.board.items()
+                if piece.owner != Owner.HUMAN
+            }
+            game.board.update(random_deployment(Owner.HUMAN, rng))
+            print("已重新生成合法随机阵型。\n")
+            continue
+        if command in {"quit", "q", "exit"}:
+            print("已退出。")
+            return False
+        try:
+            parts = raw.replace(",", " ").split()
+            if len(parts) != 3 or parts[0].lower() not in {"swap", "s", "换"}:
+                raise ValueError("格式应为：swap A12 B12")
+            left, right = parse_position(parts[1]), parse_position(parts[2])
+            swap_pieces(game.board, Owner.HUMAN, left, right)
+            print(f"已交换 {parts[1].upper()} 与 {parts[2].upper()}。\n")
+        except ValueError as error:
+            print(f"无法调整：{error}\n")
+
+
+def play(
+    seed: int | None,
+    model_path: Path,
+    auto_deploy: bool = False,
+    search_samples: int = 6,
+    deployment_model: Path | None = None,
+    search_replies: int = 4,
+) -> None:
+    weights = BotWeights.load(model_path) if model_path.exists() else BotWeights()
+    bot = SearchBot(
+        weights, seed=seed, samples=search_samples, reply_width=search_replies
+    )
+    rng = random.Random(seed)
+    bot_deployment = (
+        load_deployment(deployment_model)
+        if deployment_model is not None and deployment_model.exists()
+        else strategic_deployment(Owner.BOT, rng)
+    )
+    game = Game.new(seed=seed, bot_deployment=bot_deployment)
+    print("军棋单人版：你执南方（<棋>），Bot 执北方（[?]）。")
+    if not auto_deploy and not arrange_player(game, rng):
+        return
+    print("输入 A10-A9 走棋；输入 moves 查看合法走法；输入 quit 退出。\n")
+
+    while not game.over:
+        print(render(game))
+        if game.turn == Owner.HUMAN:
+            raw = input("\n你的回合 > ").strip()
+            if raw.lower() in {"quit", "q", "exit"}:
+                print("已退出本局。")
+                return
+            if raw.lower() in {"moves", "m"}:
+                print("合法走法：" + "  ".join(map(str, game.legal_moves())))
+                continue
+            try:
+                message = game.apply(parse_move(raw))
+            except ValueError as error:
+                print(f"无法走棋：{error}")
+                continue
+            print(message)
+        else:
+            move = bot.choose_move(game)
+            print(f"\nBot 走：{move}")
+            print(game.apply(move))
+        print()
+
+    print(render(game))
+    if game.winner == Owner.HUMAN:
+        print("\n你赢了！")
+    elif game.winner == Owner.BOT:
+        print("\nBot 获胜。")
+    else:
+        print("\n和棋。")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="军棋单人对局")
+    parser.add_argument("--seed", type=int, default=None, help="固定棋局随机种子")
+    parser.add_argument("--model", type=Path, default=DEFAULT_MODEL, help="Bot 模型路径")
+    parser.add_argument(
+        "--auto-deploy",
+        action="store_true",
+        help="跳过手工布阵，直接使用随机合法阵型",
+    )
+    parser.add_argument(
+        "--search-samples",
+        type=int,
+        default=6,
+        help="Bot 每个候选走法的暗子采样数；越大越强但思考更久",
+    )
+    parser.add_argument(
+        "--search-replies",
+        type=int,
+        default=4,
+        help="Bot 每次推演考虑的对手最强应手数；越大越谨慎但思考更久",
+    )
+    parser.add_argument(
+        "--deployment-model",
+        type=Path,
+        default=None,
+        help="固定的 Bot 初始布局模型路径；默认每局重新生成战术布阵",
+    )
+    return parser
+
+
+def main() -> None:
+    arguments = build_parser().parse_args()
+    if arguments.search_samples < 1:
+        raise SystemExit("search-samples 至少为 1")
+    if arguments.search_replies < 1:
+        raise SystemExit("search-replies 至少为 1")
+    play(
+        arguments.seed,
+        arguments.model,
+        arguments.auto_deploy,
+        arguments.search_samples,
+        arguments.deployment_model,
+        arguments.search_replies,
+    )
+
+
+if __name__ == "__main__":
+    main()
