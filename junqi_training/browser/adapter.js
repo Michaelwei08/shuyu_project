@@ -29,48 +29,41 @@
   const ROWS = 12;
   const COLS = 5;
 
-  function axis(values, count) {
-    const sorted = [...values].sort((a, b) => a - b);
-    const groups = [];
-    for (const value of sorted) {
-      const last = groups[groups.length - 1];
-      if (last && Math.abs(last[0] - value) < 25) last.push(value);
-      else groups.push([value]);
-    }
-    if (groups.length !== count) {
-      throw new Error(`expected ${count} lines, found ${groups.length}`);
-    }
-    return groups.map((g) => g.reduce((a, b) => a + b, 0) / g.length);
-  }
-
-  /** Every square, indexed in OUR coordinate frame (0 = A1, north-west). */
+  /**
+   * Every square, indexed in OUR coordinate frame (0 = A1, north-west).
+   *
+   * Rank into fixed 12x5 chunks rather than clustering coordinates by
+   * tolerance: the page relayouts mid-game (column centres shifted from
+   * 591..1117 to 608..1099 during the first run) and a transient frame briefly
+   * produced a sixth column, which killed the loop.
+   */
   function scan() {
     const nodes = [...document.querySelectorAll(".Square")];
     if (nodes.length !== ROWS * COLS) {
-      throw new Error(`expected 60 squares, found ${nodes.length}`);
+      throw new Error(`expected ${ROWS * COLS} squares, found ${nodes.length}`);
     }
-    const boxes = nodes.map((el) => {
-      const r = el.getBoundingClientRect();
-      return { el, x: r.x + r.width / 2, y: r.y + r.height / 2 };
-    });
-    const xs = axis(boxes.map((b) => b.x), COLS);
-    const ys = axis(boxes.map((b) => b.y), ROWS);
-    const nearest = (v, lines) =>
-      lines.reduce((best, l, i) =>
-        Math.abs(l - v) < Math.abs(lines[best] - v) ? i : best, 0);
+    const boxes = nodes
+      .map((el) => {
+        const r = el.getBoundingClientRect();
+        return { el, x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      })
+      .sort((a, b) => a.y - b.y || a.x - b.x);
 
     const cells = new Array(ROWS * COLS).fill(null);
-    for (const box of boxes) {
-      const screenRow = nearest(box.y, ys);
-      const screenCol = nearest(box.x, xs);
-      // 180 degree rotation: we play the bottom, the engine plays the top.
-      const index = (ROWS - 1 - screenRow) * COLS + (COLS - 1 - screenCol);
-      const cls = (box.el.className || "").toString();
-      cells[index] = {
-        el: box.el,
-        side: cls.includes("Blue") ? "bot" : cls.includes("Red") ? "human" : null,
-        label: box.el.textContent.trim(),
-      };
+    for (let screenRow = 0; screenRow < ROWS; screenRow += 1) {
+      const row = boxes
+        .slice(screenRow * COLS, screenRow * COLS + COLS)
+        .sort((a, b) => a.x - b.x);
+      row.forEach((box, screenCol) => {
+        // 180 degree rotation: we play the bottom, the engine plays the top.
+        const index = (ROWS - 1 - screenRow) * COLS + (COLS - 1 - screenCol);
+        const cls = (box.el.className || "").toString();
+        cells[index] = {
+          el: box.el,
+          side: cls.includes("Blue") ? "bot" : cls.includes("Red") ? "human" : null,
+          label: box.el.textContent.trim(),
+        };
+      });
     }
     return cells;
   }
