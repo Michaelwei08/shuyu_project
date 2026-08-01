@@ -85,6 +85,11 @@ class BotWeights:
     # six. Material alone barely notices; this makes the last few captures
     # worth what they actually are.
     eval_immobilize: float = 110.0
+    # 1 = count threat in moves (railways make E2 two moves from B1 while
+    # Manhattan calls it four); 0 = the old Manhattan metric. A weight rather
+    # than a constant purely so the paired harness can A/B it: a code-level
+    # switch would apply to both sides of a comparison and cancel out.
+    use_move_distance: float = 1.0
 
     @classmethod
     def load(cls, path: str | Path) -> "BotWeights":

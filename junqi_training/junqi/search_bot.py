@@ -366,16 +366,18 @@ class SearchBot:
             and any(_distance(position, square) == 1 for square in squares)
         )
 
-    @staticmethod
     def _closest_raider(
-        game: Game, side: Owner, targets: list[Position]
+        self, game: Game, side: Owner, targets: list[Position]
     ) -> int | None:
         """Distance in *moves*, so a raider sitting on a railway counts as near."""
         if not targets:
             return None
+        metric = (
+            move_distance if self.weights.use_move_distance >= 0.5 else _distance
+        )
         return min(
             (
-                move_distance(position, target)
+                metric(position, target)
                 for position, piece in game.board.items()
                 if piece.owner == side
                 and piece.kind.movable
