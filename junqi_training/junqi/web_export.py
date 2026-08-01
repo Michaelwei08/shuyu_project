@@ -14,6 +14,8 @@ Run after every accepted model:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import re
 from dataclasses import asdict, fields
 from pathlib import Path
@@ -33,6 +35,12 @@ export type BotWeights = {
 """
 
 
+def fingerprint(weights: BotWeights) -> str:
+    """Short digest so a pasted game replay says which model produced it."""
+    payload = json.dumps(asdict(weights), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8]
+
+
 def render(weights: BotWeights) -> str:
     lines = [HEADER]
     for descriptor in fields(weights):
@@ -42,7 +50,8 @@ def render(weights: BotWeights) -> str:
     for descriptor in fields(weights):
         value = payload[descriptor.name]
         lines.append(f"  {descriptor.name}: {_number(value)},\n")
-    lines.append("};\n")
+    lines.append("};\n\n")
+    lines.append(f'export const WEIGHTS_FINGERPRINT = "{fingerprint(weights)}";\n')
     return "".join(lines)
 
 
