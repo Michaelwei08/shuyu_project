@@ -218,15 +218,17 @@
    * squares it had already taken. Require two consecutive identical reads that
    * differ from the starting position.
    */
-  async function settle(snapshot, timeoutMs = 3000) {
+  async function settle(snapshot, from, timeoutMs = 3000) {
     const deadline = Date.now() + timeoutMs;
-    let previous = null;
     while (Date.now() < deadline) {
-      await sleep(120);
+      await sleep(60);
       const now = readBoard();
-      const serialised = JSON.stringify(now);
-      if (serialised !== snapshot && serialised === previous) return now;
-      previous = serialised;
+      // Our move has resolved exactly when the piece has left the source
+      // square. Waiting for the board to go *stable* instead was wrong in the
+      // other direction: their AI replies within about a second, so a capture
+      // we made and they immediately recaptured read back as a loss. That
+      // over-reported losses 27 to 9 in a game we finished 11 pieces to 5.
+      if (!now[from]) return now;
     }
     return readBoard();
   }
@@ -271,7 +273,7 @@
     squareAt(move.from).click();
     await sleep(200);
     squareAt(move.to).click();
-    const after = await settle(snapshot);
+    const after = await settle(snapshot, move.from);
     // A click the page ignores would otherwise be re-issued forever.
     const landed = JSON.stringify(after) !== snapshot;
     let outcome = null;
