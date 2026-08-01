@@ -20,6 +20,8 @@ import math
 import os
 import random
 import sys
+import threading
+import time
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
@@ -232,6 +234,38 @@ def _deprioritise() -> None:
 MAX_FAILURE_RATE = 0.02
 
 
+def _report_progress(futures: list, workers: int) -> None:
+    """Print a heartbeat as matches land.
+
+    A 4000-game comparison takes minutes and used to print nothing until it
+    finished, which looks indistinguishable from a hang.
+    """
+    total = len(futures)
+    if total < 200:
+        return
+    step = max(1, total // 20)
+    state = {"done": 0, "started": time.perf_counter()}
+    lock = threading.Lock()
+
+    def tick(_future) -> None:
+        with lock:
+            state["done"] += 1
+            done = state["done"]
+        if done % step and done != total:
+            return
+        elapsed = time.perf_counter() - state["started"]
+        rate = done / elapsed if elapsed else 0.0
+        remaining = (total - done) / rate if rate else 0.0
+        print(
+            f"    {done}/{total} matches ({done / total:.0%}) "
+            f"{rate:.1f}/s, ~{remaining:.0f}s left",
+            flush=True,
+        )
+
+    for future in futures:
+        future.add_done_callback(tick)
+
+
 def run_jobs(
     jobs: list[Job], workers: int | None = None
 ) -> list[MatchResult | None]:
@@ -257,6 +291,7 @@ def run_jobs(
             max_workers=count, initializer=_deprioritise
         ) as executor:
             futures = [executor.submit(play_match, job) for job in jobs]
+            _report_progress(futures, count)
             for job, future in zip(jobs, futures, strict=True):
                 try:
                     results.append(future.result())
