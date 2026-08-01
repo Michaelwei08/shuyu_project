@@ -14,10 +14,20 @@ import random
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from .bot import BotWeights, HeuristicBot, _distance, _piece_value
+from .bot import (
+    PRIOR_BATTLE,
+    BotWeights,
+    HeuristicBot,
+    _distance,
+    _expected_battle,
+    _piece_value,
+    enemy_flag_squares,
+)
+from .deployment import rear_rows
 from .game import Game
+from .knowledge import OpponentKnowledge
 from .search_bot import SearchBot
-from .types import Move, Owner, PieceKind
+from .types import Move, Owner, PieceKind, Position
 
 
 class RandomBot:
@@ -74,6 +84,91 @@ class HQRushBot:
         return best
 
 
+class SelectiveBot:
+    """Picks its fights: attacks only when the odds are with it.
+
+    The policy class the pool was missing, and the reason a mispriced attack
+    term could survive training. Every weight-driven opponent here shares
+    `capture` and `blind_battle` with the candidate -- `material_weights` even
+    doubles `capture` -- so the whole pool over-attacks in the same direction
+    and the bias nets to zero in self-play. `HQRushBot` is the only
+    structurally different opponent and it carries the *opposite* bias, since
+    it refuses captures outright. Nothing attacked *selectively*, which is what
+    a human does, and over ten replayed games the human won 76% of the battles
+    it started against the bot's 46%.
+
+    Deduces from its own battle history exactly as `SearchBot` does, so it
+    never reads a hidden rank -- it just declines fights a prior says it loses.
+    """
+
+    def __init__(
+        self,
+        weights: BotWeights,
+        seed: int | None = None,
+        threshold: float = 0.05,
+    ) -> None:
+        self.heuristic = HeuristicBot(weights, seed=seed)
+        self.rng = random.Random(seed)
+        self.threshold = threshold
+        self.knowledge: OpponentKnowledge | None = None
+        self.processed_records = 0
+
+    def choose_move(self, game: Game, owner: Owner | None = None) -> Move:
+        player = game.turn if owner is None else owner
+        self._update_knowledge(game, player)
+        assert self.knowledge is not None
+        self.heuristic.knowledge = self.knowledge.possible
+        moves = game.legal_moves(player)
+        if not moves:
+            raise ValueError("当前玩家没有合法走法")
+        targets = enemy_flag_squares(game, player, self.knowledge.possible)
+        # Fall back to the full list when every move is a fight it dislikes --
+        # declining to move is not an option.
+        allowed = [
+            move for move in moves if self._acceptable(game, move, player, targets)
+        ] or moves
+        scored = [
+            (self.heuristic._score(game, move, player), move) for move in allowed
+        ]
+        best = max(score for score, _ in scored)
+        return self.rng.choice(
+            [move for score, move in scored if score >= best - 1e-9]
+        )
+
+    def _update_knowledge(self, game: Game, owner: Owner) -> None:
+        if self.knowledge is None or self.knowledge.owner != owner:
+            self.knowledge = OpponentKnowledge(owner)
+            self.processed_records = 0
+        for event in game.observations(owner, self.processed_records):
+            self.knowledge.observe(event)
+        self.processed_records = len(game.records)
+        self.knowledge.forget_missing(
+            {
+                position
+                for position, piece in game.board.items()
+                if piece.owner == owner.other
+            }
+        )
+
+    def _acceptable(
+        self, game: Game, move: Move, player: Owner, targets: list[Position]
+    ) -> bool:
+        target = game.board.get(move.dst)
+        if target is None:
+            return True
+        if target.revealed or move.dst in targets:
+            return True  # a flag or last-headquarters strike is always worth it
+        attacker = game.board[move.src].kind
+        assert self.knowledge is not None
+        believed = self.knowledge.possible.get(move.dst)
+        if believed:
+            return _expected_battle(attacker, believed) > self.threshold
+        if move.dst[0] in rear_rows(player.other):
+            # Mine country, and only an engineer survives a mine.
+            return attacker == PieceKind.ENGINEER
+        return PRIOR_BATTLE[attacker] > self.threshold
+
+
 def material_weights(base: BotWeights) -> BotWeights:
     """Pure trader: no headquarters plan, all value in captures."""
     return replace(
@@ -116,7 +211,7 @@ class AgentSpec:
     """A picklable recipe for one player."""
 
     name: str
-    kind: str  # "random" | "heuristic" | "search" | "hqrush"
+    kind: str  # "random" | "heuristic" | "search" | "hqrush" | "selective"
     weights_path: str | None = None
     weights_style: str = "as_is"  # as_is | material | defensive | engineer
     samples: int = 3
@@ -124,6 +219,8 @@ class AgentSpec:
     reply_width: int = 4
     caution: float = 1.0
     noise: float | None = None
+    #: Minimum expected battle outcome a `selective` agent will attack on.
+    threshold: float = 0.05
 
     def build(self, weights: BotWeights, seed: int):
         if self.kind == "random":
@@ -133,6 +230,8 @@ class AgentSpec:
         shaped = STYLES[self.weights_style](weights)
         if self.noise is not None:
             shaped = replace(shaped, noise=self.noise)
+        if self.kind == "selective":
+            return SelectiveBot(shaped, seed=seed, threshold=self.threshold)
         if self.kind == "heuristic":
             return HeuristicBot(shaped, seed=seed)
         if self.kind == "search":
@@ -191,6 +290,13 @@ def standard_pool(
         ),
         AgentSpec("hqrush", "hqrush"),
         AgentSpec("hqrush-careful", "hqrush", caution=2.0),
+        # Attacks only on favourable odds. Without these the pool cannot tell a
+        # well-priced attack term from a badly-priced one, because every other
+        # weight-driven opponent carries the candidate's own attacking bias.
+        AgentSpec("selective", "selective", weights_path=anchor),
+        AgentSpec(
+            "selective-strict", "selective", weights_path=anchor, threshold=0.35
+        ),
         AgentSpec(
             "search-shallow",
             "search",

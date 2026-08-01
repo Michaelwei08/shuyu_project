@@ -113,8 +113,18 @@ def random_deployment(owner: Owner, rng: random.Random) -> dict[Position, Piece]
     return result
 
 
+#: Most mines allowed on the flag headquarters' own neighbours. Was effectively
+#: 3 (a full seal) until ten replayed games showed the seal losing every time;
+#: see `_build_strategic`. Kept as a parameter so the paired harness can A/B a
+#: capped screen against the old full seal.
+SCREEN_MINE_CAP = 2
+
+
 def strategic_deployment(
-    owner: Owner, rng: random.Random, attempts: int = 60
+    owner: Owner,
+    rng: random.Random,
+    attempts: int = 60,
+    screen_cap: int | None = None,
 ) -> dict[Position, Piece]:
     """A fresh, legal, non-random-looking opening.
 
@@ -122,16 +132,19 @@ def strategic_deployment(
     uniform random one wastes material. This keeps the shape sensible -- mines
     screening the flag, a cheap decoy in the unused headquarters, leaders off
     the back rows -- while varying every game.
+
+    ``screen_cap`` overrides :data:`SCREEN_MINE_CAP`; pass 3 to reproduce the
+    old full seal.
     """
     for _ in range(attempts):
-        result = _build_strategic(owner, rng)
+        result = _build_strategic(owner, rng, screen_cap)
         if result is not None and not validate_deployment(result, owner):
             return result
     return random_deployment(owner, rng)
 
 
 def _build_strategic(
-    owner: Owner, rng: random.Random
+    owner: Owner, rng: random.Random, screen_cap: int | None = None
 ) -> dict[Position, Piece] | None:
     result: dict[Position, Piece] = {}
     free = set(deployment_positions(owner))
@@ -155,13 +168,22 @@ def _build_strategic(
     ]
     rng.shuffle(screen)
     rng.shuffle(rear_free)
-    # A headquarters has exactly three orthogonal neighbours and all of them sit
-    # in the rear rows, so all three mines can screen the flag -- after which
-    # only an engineer can reach it. That is precisely the layout a human used
-    # to make the bot's own raids hopeless.
-    guards = screen[: 3 if rng.random() < 0.75 else 2]
+    # A headquarters has exactly three orthogonal neighbours, all of them in the
+    # rear rows, so all three mines *can* seal the flag. Ten replayed games say
+    # not to. Those neighbours are alternative doors, not three locks on one
+    # door -- the attacker only has to open the cheapest, and in eight of eight
+    # flag losses exactly one mine was cleared, always the square the killer
+    # then stood on. Sealing also costs more than it buys: a mine cannot move,
+    # so a full screen leaves no square from which the bot can ever post a
+    # mobile defender, and `eval_hq_guard` is pinned at zero until the bot's own
+    # screen has been destroyed. Leave at least one neighbour to a piece that
+    # can fight back and be replaced.
+    cap = SCREEN_MINE_CAP if screen_cap is None else screen_cap
+    guards = screen[: cap if rng.random() < 0.75 else max(1, cap - 1)]
+    # Exclude the whole screen from the tail, not just the chosen guards, or the
+    # remaining mines land back on the neighbours this cap exists to keep free.
     mine_slots = guards + [
-        position for position in rear_free if position not in guards
+        position for position in rear_free if position not in screen
     ]
     if len(mine_slots) < PIECE_COUNTS[PieceKind.MINE]:
         return None

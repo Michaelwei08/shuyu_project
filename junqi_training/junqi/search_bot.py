@@ -3,7 +3,7 @@ from __future__ import annotations
 import random
 from collections import Counter
 
-from .board import HEADQUARTERS, move_distance
+from .board import COLUMNS, HEADQUARTERS, ROWS, move_distance
 from .bot import BotWeights, HeuristicBot, _distance, _piece_value
 from .deployment import headquarters, rear_rows
 from .game import Game
@@ -13,6 +13,14 @@ from .types import PIECE_COUNTS, Move, Owner, Piece, PieceKind, Position
 # Nothing on this board is more than five moves from anything else, so the old
 # `12 - distance` horizon left the term almost flat.
 EVAL_HORIZON = 6
+
+#: How close an enemy must get before defender supply starts being charged for.
+#: Two moves, because a raider one move out is already too late to reinforce
+#: against -- that is exactly the position every replayed loss ended in.
+REINFORCE_RANGE = 2
+#: Answers we want available. One is not enough: every loss came from spending
+#: the only defender and having nothing behind it when the square was refilled.
+MIN_COVER = 2
 
 
 class SearchBot:
@@ -286,7 +294,8 @@ class SearchBot:
             _piece_value(piece.kind) * (1 if piece.owner == owner else -1)
             for piece in game.board.values()
         )
-        mobility = len(game.legal_moves(owner)) - len(game.legal_moves(owner.other))
+        own_moves = game.legal_moves(owner)
+        mobility = len(own_moves) - len(game.legal_moves(owner.other))
         concealment = self._commander_shield(game, owner) - self._commander_shield(
             game, owner.other
         )
@@ -299,7 +308,7 @@ class SearchBot:
             + mobility * weights.eval_mobility
             + concealment * weights.eval_commander
             + squeeze
-            + self._flag_pressure(game, owner)
+            + self._flag_pressure(game, owner, own_moves)
         )
 
     @staticmethod
@@ -336,7 +345,9 @@ class SearchBot:
             )
         )
 
-    def _flag_pressure(self, game: Game, owner: Owner) -> float:
+    def _flag_pressure(
+        self, game: Game, owner: Owner, own_moves: list[Move]
+    ) -> float:
         """Reward closing on the enemy headquarters, punish losing our own.
 
         Without this the evaluation is pure material and the bot has no reason
@@ -365,8 +376,56 @@ class SearchBot:
                 # flag takes it next ply unless we remove it. The linear term
                 # above barely distinguishes that from a distant piece.
                 value -= weights.eval_hq_breach
+            if threat <= REINFORCE_RANGE:
+                # Supply, not occupancy: a raider this close will be on an
+                # approach square within a ply or two, and by then the only
+                # thing that matters is how many pieces can still answer.
+                # Charged even when nothing has arrived yet, so the search
+                # cannot make it disappear by assuming it recaptures.
+                cover = self._cover(game, owner, defending, own_moves)
+                value -= weights.eval_hq_supply * max(0, MIN_COVER - cover)
         value += weights.eval_hq_guard * self._guards(game, owner, defending)
         return value
+
+    @staticmethod
+    def _approaches(squares: list[Position]) -> set[Position]:
+        """Squares an attacker must stand on to reach one of ``squares``."""
+        return {
+            (square[0] + row, square[1] + column)
+            for square in squares
+            for row, column in ((1, 0), (-1, 0), (0, 1), (0, -1))
+            if 0 <= square[0] + row < ROWS and 0 <= square[1] + column < COLUMNS
+        }
+
+    @classmethod
+    def _cover(
+        cls,
+        game: Game,
+        owner: Owner,
+        squares: list[Position],
+        own_moves: list[Move],
+    ) -> int:
+        """Distinct own pieces that hold, or can reach, a flag approach square.
+
+        Counts a piece already standing on an approach *and* a piece one move
+        from stepping onto it, because both can answer a raider -- and the
+        losses came from having neither. The three-mine screen scores zero
+        here: a mine cannot move, so it can never re-take the square it dies
+        on.
+        """
+        if not squares:
+            return 0
+        approaches = cls._approaches(squares)
+        holding = {
+            position
+            for position, piece in game.board.items()
+            if piece.owner == owner
+            and piece.kind.movable
+            and position not in HEADQUARTERS
+            and position in approaches
+        }
+        arriving = {move.src for move in own_moves if move.dst in approaches}
+        return len(holding | arriving)
 
     @staticmethod
     def _guards(game: Game, owner: Owner, squares: list[Position]) -> int:

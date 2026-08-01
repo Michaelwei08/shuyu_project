@@ -45,17 +45,32 @@ SHAPE_HQ_DEFENSE = 0.08
 SHAPE_MATERIAL = 0.04
 
 
-def make_opening(seed: int) -> dict[Position, Piece]:
+def make_opening(
+    seed: int, screen_caps: dict[Owner, int | None] | None = None
+) -> dict[Position, Piece]:
     """Both armies deployed from the seed alone, so openings are comparable.
 
     Arithmetic only -- `hash()` of anything containing a str is salted per
     process, which would make openings differ between worker processes and
     quietly destroy the paired design.
+
+    ``screen_caps`` optionally overrides how many mines each side may put on
+    its flag headquarters' neighbours. It is the one deployment knob the paired
+    harness can vary, and it stays a plain int per side so a `Job` remains
+    picklable and every worker rebuilds the identical board.
     """
     rng = random.Random(seed * 2_654_435_761 + 12_345)
+    caps = screen_caps or {}
+    # One stream per side. A shared stream would make the number of draws the
+    # bot's deployment consumes depend on its screen cap, which would silently
+    # change the *human's* army too -- and then a capped-vs-sealed comparison
+    # would be measuring a different opponent as well as a different screen.
+    streams = {owner: random.Random(rng.randrange(2**32)) for owner in Owner}
     board: dict[Position, Piece] = {}
-    board.update(strategic_deployment(Owner.BOT, rng))
-    board.update(strategic_deployment(Owner.HUMAN, rng))
+    for owner in (Owner.BOT, Owner.HUMAN):
+        board.update(
+            strategic_deployment(owner, streams[owner], screen_cap=caps.get(owner))
+        )
     return board
 
 
@@ -70,6 +85,11 @@ class Job:
     opponent: AgentSpec
     seed: int
     subject_side: int  # Owner value the candidate plays
+    #: Mines the *subject* may seal its flag headquarters with. `None` uses the
+    #: default policy. Only the subject's side varies, so a candidate and an
+    #: incumbent still face byte-identical opposing armies on the same seed and
+    #: the comparison stays paired.
+    subject_screen_cap: int | None = None
 
 
 @dataclass(frozen=True)
@@ -124,7 +144,10 @@ def _material_margin(game: Game, side: Owner) -> float:
 
 def play_match(job: Job) -> MatchResult:
     subject_side = Owner(job.subject_side)
-    game = Game(board=make_opening(job.seed), turn=Owner(job.seed % 2))
+    game = Game(
+        board=make_opening(job.seed, {subject_side: job.subject_screen_cap}),
+        turn=Owner(job.seed % 2),
+    )
     opponent_weights = (
         _load_weights(job.opponent.weights_path)
         if job.opponent.weights_path
@@ -190,10 +213,15 @@ def _flag_was_captured(game: Game) -> bool:
     return last.defender is not None and last.defender.kind == PieceKind.FLAG
 
 
-def build_jobs(weights: BotWeights, pool: Pool, seeds: list[int]) -> list[Job]:
+def build_jobs(
+    weights: BotWeights,
+    pool: Pool,
+    seeds: list[int],
+    subject_screen_cap: int | None = None,
+) -> list[Job]:
     """Every seed against every opponent, both colours -- the paired design."""
     return [
-        Job(weights, spec, seed, side)
+        Job(weights, spec, seed, side, subject_screen_cap)
         for seed in seeds
         for spec in pool.specs
         for side in (int(Owner.HUMAN), int(Owner.BOT))
@@ -357,8 +385,9 @@ def evaluate(
     pool: Pool,
     seeds: list[int],
     workers: int | None = None,
+    subject_screen_cap: int | None = None,
 ) -> PoolReport:
-    played = run_jobs(build_jobs(weights, pool, seeds), workers)
+    played = run_jobs(build_jobs(weights, pool, seeds, subject_screen_cap), workers)
     return PoolReport([result for result in played if result is not None])
 
 
@@ -401,10 +430,17 @@ def compare(
     pool: Pool,
     seeds: list[int],
     workers: int | None = None,
+    candidate_screen_cap: int | None = None,
+    incumbent_screen_cap: int | None = None,
 ) -> Comparison:
-    """Run both weight sets over an identical job list and pair the outcomes."""
-    candidate_jobs = build_jobs(candidate, pool, seeds)
-    incumbent_jobs = build_jobs(incumbent, pool, seeds)
+    """Run both weight sets over an identical job list and pair the outcomes.
+
+    The two ``screen_cap`` arguments are the one way a *non-weight* change can
+    enter this comparison: they alter only the subject's own deployment, so the
+    opposing army on a given seed is unchanged and the pairing survives.
+    """
+    candidate_jobs = build_jobs(candidate, pool, seeds, candidate_screen_cap)
+    incumbent_jobs = build_jobs(incumbent, pool, seeds, incumbent_screen_cap)
     combined = run_jobs(candidate_jobs + incumbent_jobs, workers)
     split = len(candidate_jobs)
     # Drop a pair entirely if either half failed -- a half-pair would break the

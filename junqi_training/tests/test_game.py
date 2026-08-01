@@ -7,11 +7,12 @@ from pathlib import Path
 
 from junqi.arena import compare, make_opening
 from junqi.board import CAMPS, HEADQUARTERS
-from junqi.bot import BotWeights, HeuristicBot
+from junqi.bot import PRIOR_BATTLE, BotWeights, HeuristicBot
 from junqi.cli import render
-from junqi.opponents import AgentSpec, Pool, standard_pool
+from junqi.opponents import AgentSpec, Pool, SelectiveBot, standard_pool
 from junqi.web_export import parse as parse_web_weights
 from junqi.deployment import (
+    SCREEN_MINE_CAP,
     front_row,
     headquarters,
     load_deployment,
@@ -466,6 +467,189 @@ class GameTests(unittest.TestCase):
         # A colonel winning says only "something weaker" -- not nameable.
         knowledge.observe(replace(win, own_kind=PieceKind.COLONEL))
         self.assertEqual(knowledge.destroyed[PieceKind.MINE], 1)
+
+    def test_a_blind_attack_is_priced_by_odds_not_by_attacker_value(self) -> None:
+        """The mispricing that lost nine of ten games on 2026-07-31.
+
+        `unknown_risk` scaled the penalty by what the attacker is *worth*, but
+        what decides an attack on a square we know nothing about is how likely
+        it is to *lose* -- and across the rank order those run in opposite
+        directions. The old term therefore scored the commander lowest (+1.80)
+        and the engineer highest (+2.53) for the very same blind attack, while
+        the replayed games had the commander at 3W/1T/0L and the engineer at
+        1W/2T/5L. The bot was being paid to probe with the pieces that lose.
+        """
+        weights = BotWeights(noise=0.0)
+
+        def score(attacker: PieceKind) -> float:
+            game = Game(
+                board={
+                    (5, 0): Piece(Owner.BOT, attacker),
+                    # Row 7 is neither rear rows nor a headquarters, so this is
+                    # the genuinely-unknown branch rather than mine country.
+                    (6, 0): Piece(Owner.HUMAN, PieceKind.MAJOR),
+                    (0, 1): Piece(Owner.BOT, PieceKind.FLAG),
+                    (11, 1): Piece(Owner.HUMAN, PieceKind.FLAG),
+                }
+            )
+            return HeuristicBot(weights, seed=7)._score(
+                game, Move((5, 0), (6, 0)), Owner.BOT
+            )
+
+        # Engineers have their own branch (`engineer_waste`); everything else
+        # runs through the prior, and must come out ordered by rank.
+        ladder = [
+            PieceKind.COMMANDER,
+            PieceKind.GENERAL,
+            PieceKind.MAJOR_GENERAL,
+            PieceKind.BRIGADIER,
+            PieceKind.COLONEL,
+            PieceKind.MAJOR,
+            PieceKind.CAPTAIN,
+            PieceKind.LIEUTENANT,
+        ]
+        scores = [score(kind) for kind in ladder]
+        for stronger, weaker, high, low in zip(
+            ladder, ladder[1:], scores, scores[1:], strict=False
+        ):
+            self.assertGreater(high, low, f"{stronger.name} vs {weaker.name}")
+        # The sign has to flip somewhere, or this is only a rescaling: a
+        # lieutenant walking into an unknown must be worse than not doing it.
+        self.assertLess(scores[-1], score(PieceKind.COMMANDER) - 10.0)
+
+    def test_the_blind_prior_excludes_ranks_that_cannot_be_there(self) -> None:
+        # A flag never leaves a headquarters and a mine never leaves the rear
+        # two rows, so neither may lift an engineer's odds on a midboard square.
+        self.assertLess(PRIOR_BATTLE[PieceKind.ENGINEER], 0.0)
+        self.assertGreater(PRIOR_BATTLE[PieceKind.COMMANDER], 0.0)
+        # A bomb trades with every rank, so its expectation is exactly zero.
+        self.assertAlmostEqual(PRIOR_BATTLE[PieceKind.BOMB], 0.0)
+
+    def test_defender_supply_is_charged_before_the_breach_lands(self) -> None:
+        """Nine of nine replayed losses ended with the bot holding no legal
+        move onto the square in front of its own flag. `eval_hq_breach` cannot
+        help there: with no answer available it is identical across every
+        candidate and cancels out. This term prices the *supply* of answers
+        while the raider is still two moves away, which is the last moment the
+        position can still be fixed."""
+        weights = replace(
+            BotWeights(),
+            # Leave only material and the supply term standing, so the two
+            # boards below differ by exactly one thing.
+            eval_hq_guard=0.0,
+            eval_mobility=0.0,
+            eval_commander=0.0,
+            eval_hq_attack=0.0,
+            eval_hq_attack_certain=0.0,
+            eval_hq_defense=0.0,
+            eval_hq_defense_certain=0.0,
+            eval_hq_breach=0.0,
+            eval_immobilize=0.0,
+        )
+        bot = SearchBot(weights, seed=5)
+
+        def value(defenders: tuple[tuple[int, int], ...]) -> float:
+            board = {
+                (0, 1): Piece(Owner.BOT, PieceKind.FLAG),
+                (1, 3): Piece(Owner.HUMAN, PieceKind.CAPTAIN),  # two moves out
+                (11, 1): Piece(Owner.HUMAN, PieceKind.FLAG),
+            }
+            for square in defenders:
+                board[square] = Piece(Owner.BOT, PieceKind.CAPTAIN)
+            return bot._state_value(Game(board=board), Owner.BOT)
+
+        # Same two pieces, same material: held on the flag's approaches, or
+        # sent away where they can never answer.
+        home = value(((0, 0), (0, 2)))
+        away = value(((8, 0), (8, 4)))
+        self.assertGreater(home, away, "supply term is switched off")
+        self.assertAlmostEqual(home - away, 2 * weights.eval_hq_supply, places=6)
+
+    def test_the_flag_screen_leaves_room_for_a_mobile_defender(self) -> None:
+        """A headquarters' three neighbours are alternative doors, not three
+        locks on one door -- the attacker only opens the cheapest, and in eight
+        of eight replayed flag losses exactly one mine was cleared. Sealing all
+        three also pins `eval_hq_guard` at zero, because a mine cannot move."""
+        for seed in range(40):
+            for owner in Owner:
+                layout = strategic_deployment(owner, random.Random(seed))
+                flag = next(
+                    position
+                    for position, piece in layout.items()
+                    if piece.kind == PieceKind.FLAG
+                )
+                neighbours = [
+                    (flag[0] + row, flag[1] + column)
+                    for row, column in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                    if (flag[0] + row, flag[1] + column) in layout
+                ]
+                mines = [
+                    square
+                    for square in neighbours
+                    if layout[square].kind == PieceKind.MINE
+                ]
+                self.assertLessEqual(len(mines), SCREEN_MINE_CAP, f"seed {seed}")
+                self.assertTrue(
+                    any(layout[square].kind.movable for square in neighbours),
+                    f"seed {seed}: flag sealed behind immovable pieces",
+                )
+
+    def test_the_screen_cap_changes_only_the_subject_army(self) -> None:
+        """What makes the deployment change measurable by the paired harness.
+
+        Each side draws from its own stream, so raising the bot's cap cannot
+        shift how many draws are left for the human -- otherwise a
+        capped-vs-sealed comparison would be measuring a different opponent as
+        well as a different screen.
+        """
+        sealed = make_opening(11, {Owner.BOT: 3})
+        capped = make_opening(11, {Owner.BOT: 2})
+
+        def army(board, owner):
+            return {
+                position: piece
+                for position, piece in board.items()
+                if piece.owner == owner
+            }
+
+        self.assertEqual(army(sealed, Owner.HUMAN), army(capped, Owner.HUMAN))
+        self.assertNotEqual(army(sealed, Owner.BOT), army(capped, Owner.BOT))
+        for owner in Owner:
+            self.assertEqual(validate_deployment(sealed, owner), [])
+            self.assertEqual(validate_deployment(capped, owner), [])
+
+    def test_the_selective_opponent_declines_the_fights_it_should_lose(self) -> None:
+        """The policy class the pool was missing.
+
+        Every weight-driven opponent shares `capture` and `blind_battle` with
+        the candidate, and `material` doubles `capture`, so the whole pool
+        over-attacks in the same direction and a mispriced attack term nets to
+        zero in self-play. `hqrush` is the only structurally different opponent
+        and it carries the opposite bias, refusing captures outright.
+        """
+        board = {
+            (6, 0): Piece(Owner.HUMAN, PieceKind.LIEUTENANT),
+            (5, 0): Piece(Owner.BOT, PieceKind.MAJOR),
+            (0, 1): Piece(Owner.BOT, PieceKind.FLAG),
+            (11, 1): Piece(Owner.HUMAN, PieceKind.FLAG),
+        }
+        game = Game(board=dict(board))
+        agent = SelectiveBot(BotWeights(noise=0.0), seed=3)
+        attack = Move((6, 0), (5, 0))
+        chosen = agent.choose_move(game, Owner.HUMAN)
+        self.assertIn(chosen, game.legal_moves(Owner.HUMAN))
+        self.assertNotEqual(chosen, attack, "a lieutenant should not probe blind")
+
+        # Same square, same ignorance, a rank that wins the exchange 86% of the
+        # time: now it is worth taking.
+        strong = Game(
+            board={**board, (6, 0): Piece(Owner.HUMAN, PieceKind.COMMANDER)}
+        )
+        bold = SelectiveBot(BotWeights(noise=0.0), seed=3)
+        bold._update_knowledge(strong, Owner.HUMAN)
+        self.assertTrue(bold._acceptable(strong, attack, Owner.HUMAN, []))
+        agent._update_knowledge(game, Owner.HUMAN)
+        self.assertFalse(agent._acceptable(game, attack, Owner.HUMAN, []))
 
     def test_only_a_c_e_files_cross_the_river(self) -> None:
         game = Game(

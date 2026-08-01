@@ -47,6 +47,10 @@ FLOORS = {
     "engineer_mine": 0.0,
     "unknown_risk": 0.0,
     "belief_battle": 0.0,
+    # Following the expected-battle signal is only ever right side up; a
+    # negative coefficient would mean "prefer the attacks you expect to lose".
+    "blind_battle": 0.0,
+    "eval_hq_supply": 0.0,
     "eval_material": 0.1,
     "eval_mobility": 0.0,
     "eval_hq_attack": 0.0,

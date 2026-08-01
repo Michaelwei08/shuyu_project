@@ -13,7 +13,7 @@ from .board import (
 )
 from .deployment import rear_rows
 from .game import Game, battle_outcome
-from .types import Move, Owner, PieceKind, Position
+from .types import PIECE_COUNTS, Move, Owner, PieceKind, Position
 
 
 @dataclass
@@ -38,8 +38,13 @@ class BotWeights:
     mobility: float = 0.08
     protect_flag: float = 0.3
     revealed_flag_hunt: float = 5.0
-    unknown_risk: float = 0.12
     belief_battle: float = 9.0
+    # Superseded by `blind_battle`, and kept only so the paired harness can A/B
+    # the two: `compare()` varies weights, not code, so deleting this branch
+    # would apply the change to *both* sides of every comparison and cancel out.
+    # Shipped at 0. Set it back to 0.0908 (and `blind_battle` to 0) to recover
+    # the pre-2026-08-01 behaviour exactly.
+    unknown_risk: float = 0.0
     hq_pressure: float = 1.2
     hq_strike: float = 14.0
     mine_risk: float = 0.5
@@ -50,6 +55,19 @@ class BotWeights:
     # this merely cancelled the capture bonus (+3.2), leaving the bot
     # indifferent to throwing engineers away.
     engineer_waste: float = -12.0
+    # Attacking a square we know nothing about. This used to be
+    # `-piece_value * unknown_risk`, which charged for *what the attacker is
+    # worth* -- but what decides a blind attack is *how likely it is to lose*,
+    # and those run in opposite directions. The old term therefore scored the
+    # commander lowest (+1.80) and the engineer highest (+2.53) for the same
+    # blind attack, while ten replayed games had the commander at 3W/1T/0L and
+    # the engineer at 1W/2T/5L. It paid the bot to probe with the pieces that
+    # lose. Now the branch prices the expected battle outcome against the prior
+    # over plausible surviving ranks, exactly as `belief_battle` does for a
+    # square we *have* deduced something about -- separate coefficient because a
+    # deduced set is far better information than a prior and the two should not
+    # be forced equal.
+    blind_battle: float = 9.0
     noise: float = 0.18
 
     # --- state evaluation -----------------------------------------------
@@ -65,6 +83,16 @@ class BotWeights:
     # capture. These two are the sharp part of the signal.
     eval_hq_breach: float = 26.0
     eval_hq_guard: float = 5.5
+    # Replayed losses were not the bot ignoring a breach -- in nine of nine it
+    # answered every breach it *could*, and on the fatal ply it had no legal
+    # move onto the approach square at all. `eval_hq_breach` cannot help there:
+    # with no answer available the penalty is identical across every candidate
+    # and cancels out. Worse, a search that assumes it answers next ply prices
+    # spending its last defender as free. This term is about *supply* rather
+    # than the current occupant, so a continuation cannot dissolve it: while an
+    # enemy is within two moves of a live headquarters, having fewer than two
+    # pieces covering its approaches is charged for.
+    eval_hq_supply: float = 8.0
     # A commander's death reveals its own flag, so its life buys concealment
     # that material value (11, against a general's 10) does not price in.
     # Tempting, and measurably wrong: at 18.0 this scored -0.0213 +/- 0.0136
@@ -181,6 +209,7 @@ class HeuristicBot:
                 # An engineer loses to every rank except a mine.
                 score += weights.engineer_waste
             else:
+                score += _prior_battle(piece.kind) * weights.blind_battle
                 score -= _piece_value(piece.kind) * weights.unknown_risk
 
         if not quick and weights.mobility and (target is None or target.revealed):
@@ -250,6 +279,39 @@ def _expected_battle(attacker: PieceKind, possible: frozenset[PieceKind]) -> flo
     if not possible:
         return 0.0
     return sum(battle_outcome(attacker, kind) for kind in possible) / len(possible)
+
+
+def _build_prior_battle() -> dict[PieceKind, float]:
+    """Expected battle outcome against a square we know nothing about.
+
+    A flag never leaves a headquarters and a mine never leaves the rear two
+    rows, so neither can be the occupant of the square this branch scores --
+    the prior is the rest of the army, weighted by how many of each rank exist.
+    Static, so build it once at import rather than per scored move.
+    """
+    pool = {
+        kind: count
+        for kind, count in PIECE_COUNTS.items()
+        if kind not in (PieceKind.FLAG, PieceKind.MINE)
+    }
+    total = sum(pool.values())
+    return {
+        attacker: sum(
+            battle_outcome(attacker, defender) * count
+            for defender, count in pool.items()
+        )
+        / total
+        for attacker in PieceKind
+    }
+
+
+#: Ranges from +0.86 (commander) to -0.76 (engineer): monotone in rank, which is
+#: the property the old `unknown_risk` term got backwards.
+PRIOR_BATTLE: dict[PieceKind, float] = _build_prior_battle()
+
+
+def _prior_battle(attacker: PieceKind) -> float:
+    return PRIOR_BATTLE[attacker]
 
 
 def _distance(left: tuple[int, int], right: tuple[int, int]) -> int:

@@ -62,6 +62,24 @@ def build_parser() -> argparse.ArgumentParser:
             "要判断净进步，请对固定对手池用 --baseline 加 --no-history"
         ),
     )
+    parser.add_argument(
+        "--screen-cap",
+        type=int,
+        default=None,
+        help=(
+            "被测方军旗大本营相邻格最多埋几颗雷（默认 2）。"
+            "传 3 可复现旧的三雷封死布局"
+        ),
+    )
+    parser.add_argument(
+        "--baseline-screen-cap",
+        type=int,
+        default=None,
+        help=(
+            "对照模型的同一参数。只改被测方自己的布阵，"
+            "对手军队不变，所以配对比较依然成立"
+        ),
+    )
     return parser
 
 
@@ -90,7 +108,15 @@ def main() -> None:
     if arguments.baseline is not None:
         baseline = BotWeights.load(arguments.baseline)
         every_seed = [seed for block in blocks for seed in block]
-        verdict = compare(weights, baseline, pool, every_seed, arguments.workers)
+        verdict = compare(
+            weights,
+            baseline,
+            pool,
+            every_seed,
+            arguments.workers,
+            candidate_screen_cap=arguments.screen_cap,
+            incumbent_screen_cap=arguments.baseline_screen_cap,
+        )
         print(f"\n=== {arguments.model.name} vs {arguments.baseline.name} ===")
         print("candidate:")
         print(verdict.candidate.format())
@@ -105,7 +131,9 @@ def main() -> None:
 
     all_results = []
     for block, seeds in enumerate(blocks):
-        report = evaluate(weights, pool, seeds, arguments.workers)
+        report = evaluate(
+            weights, pool, seeds, arguments.workers, arguments.screen_cap
+        )
         all_results.extend(report.results)
         print(
             f"\n--- seed block {block + 1}/{arguments.seeds} "
