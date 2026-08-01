@@ -207,6 +207,30 @@
     lastSeen = now;
   }
 
+  /**
+   * Wait for their board to actually finish moving.
+   *
+   * Reading a fixed 320ms after the click was not enough: the source square
+   * had cleared but the destination still showed the old occupant, so every
+   * single attack was classified "lost". Over one game that produced 21
+   * battles with zero wins while material was in fact an even exchange, and
+   * the false constraints it wrote into `beliefs` made the bot re-attack
+   * squares it had already taken. Require two consecutive identical reads that
+   * differ from the starting position.
+   */
+  async function settle(snapshot, timeoutMs = 3000) {
+    const deadline = Date.now() + timeoutMs;
+    let previous = null;
+    while (Date.now() < deadline) {
+      await sleep(120);
+      const now = readBoard();
+      const serialised = JSON.stringify(now);
+      if (serialised !== snapshot && serialised === previous) return now;
+      previous = serialised;
+    }
+    return readBoard();
+  }
+
   function learnFromAttack(attackerKind, target, before, after) {
     const wasEnemy = before[target] && before[target].owner === "human";
     if (!wasEnemy) return null;
@@ -247,8 +271,7 @@
     squareAt(move.from).click();
     await sleep(200);
     squareAt(move.to).click();
-    await sleep(320);
-    const after = readBoard();
+    const after = await settle(snapshot);
     // A click the page ignores would otherwise be re-issued forever.
     const landed = JSON.stringify(after) !== snapshot;
     let outcome = null;
