@@ -849,9 +849,27 @@ var JunqiEngine = (function(exports) {
 			opening: board.map((piece) => piece ? { ...piece } : null)
 		};
 	}
-	/** Pick a move for "bot" from a board described in A1..E12 coordinates. */
-	function chooseMove(external, difficulty = "deep") {
-		const move = chooseBotMove(toGameState(external, "bot"), difficulty, emptyMemory());
+	/**
+	* Ranks that survive an attack by `attacker`.
+	*
+	* What you learn when your own piece dies attacking a square. Note FLAG is
+	* absent -- a flag loses to everything -- so a failed attack on a headquarters
+	* proves that square is not the flag.
+	*/
+	function survivorsOf(attacker) {
+		return KINDS.filter((defender) => battleOutcome(attacker, defender) < 0);
+	}
+	/**
+	* Pick a move for "bot" from a board described in A1..E12 coordinates.
+	*
+	* `knowledge` carries what past battles proved about enemy squares, keyed the
+	* same way. Without it the engine re-attacks a square that already killed a
+	* stronger piece of ours, because it has no way to remember that it did.
+	*/
+	function chooseMove(external, difficulty = "deep", knowledge = {}) {
+		const state = toGameState(external, "bot");
+		for (const [square, kinds] of Object.entries(knowledge)) state.knowledge[parseCoordinate(square)] = kinds;
+		const move = chooseBotMove(state, difficulty, emptyMemory());
 		return {
 			from: coordinate(move.from),
 			to: coordinate(move.to)
@@ -875,6 +893,7 @@ var JunqiEngine = (function(exports) {
 	exports.indexOf = indexOf;
 	exports.rowOf = rowOf;
 	exports.suggestDeployment = suggestDeployment;
+	exports.survivorsOf = survivorsOf;
 	exports.toGameState = toGameState;
 	return exports;
 })({});

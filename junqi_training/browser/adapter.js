@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Point our engine at junqi.app's board.
  *
  * Loaded into the page alongside dist-engine/junqi-engine.js. Reads their DOM,
@@ -112,10 +112,15 @@
     // headquarters is simply refused -- 15 of 23 were, in the first attempt.
     // Settle the constrained ranks first: once all three mines sit on their
     // targets no later swap can displace one, and the same for flag and bombs.
+    // Headquarters squares go first, both of them. A piece parked in a
+    // headquarters can never move again, so a half-applied layout that strands
+    // something valuable there is worse than either the source or the target:
+    // a real game ended up with a 军长 (general) frozen in one.
     const priority = { FLAG: 0, MINE: 1, BOMB: 2 };
-    const squares = Object.keys(target).sort(
-      (a, b) => (priority[target[a]] ?? 3) - (priority[target[b]] ?? 3),
-    );
+    const HEADQUARTERS_SQUARES = ["B1", "D1"];
+    const rank = (square) =>
+      HEADQUARTERS_SQUARES.includes(square) ? -1 : (priority[target[square]] ?? 3);
+    const squares = Object.keys(target).sort((a, b) => rank(a) - rank(b));
     let swaps = 0;
     let refused = 0;
     for (const square of squares) {
@@ -132,9 +137,31 @@
       if (ourLayout()[square] === target[square]) swaps += 1;
       else refused += 1;
     }
+    // Last resort: whatever ended up frozen in the spare headquarters must be
+    // cheap, even if the rest of the layout could not be reached.
+    const EXPENDABLE = ["LIEUTENANT", "CAPTAIN", "ENGINEER", "MAJOR"];
+    for (const hq of HEADQUARTERS_SQUARES) {
+      const now = ourLayout();
+      if (now[hq] === "FLAG" || EXPENDABLE.includes(now[hq])) continue;
+      const donor = Object.keys(now).find(
+        (s) => !HEADQUARTERS_SQUARES.includes(s) && EXPENDABLE.includes(now[s]),
+      );
+      if (!donor) continue;
+      squareAt(hq).click();
+      await sleep(140);
+      squareAt(donor).click();
+      await sleep(200);
+      if (EXPENDABLE.includes(ourLayout()[hq])) swaps += 1;
+    }
+
     const final = ourLayout();
     const wrong = squares.filter((s) => final[s] !== target[s]);
-    return { swaps, refused, mismatched: wrong.length, target };
+    return {
+      swaps,
+      refused,
+      mismatched: wrong.length,
+      headquarters: HEADQUARTERS_SQUARES.map((s) => `${s}=${final[s]}`),
+    };
   }
 
   const statusText = () => (document.body.innerText.match(/现在是.*?回合[！!]?/) || [])[0] || "";
@@ -152,6 +179,50 @@
   const recent = [];
 
   /**
+   * What past battles proved about each enemy square.
+   *
+   * Their DOM has no structured battle log, so this is rebuilt by diffing the
+   * board around each of our own attacks -- we know our attacker's rank, and
+   * the diff tells us whether we won, traded, or died. Without it the engine
+   * re-attacks a square that just killed a stronger piece, which is exactly
+   * the "connect died, now try the major" blunder: any rank that beat our
+   * captain either beats or ties the major too.
+   */
+  const beliefs = {};
+  let lastSeen = null;
+
+  const redSquares = (board) =>
+    Object.keys(board).filter((sq) => board[sq].owner === "human").sort();
+
+  /** Follow a belief when its piece walks, drop it when the square resolves. */
+  function reconcileOpponentMoves(board) {
+    if (!lastSeen) { lastSeen = redSquares(board); return; }
+    const now = redSquares(board);
+    const vanished = lastSeen.filter((s) => !now.includes(s));
+    const appeared = now.filter((s) => !lastSeen.includes(s));
+    if (vanished.length === 1 && appeared.length === 1) {
+      if (beliefs[vanished[0]]) beliefs[appeared[0]] = beliefs[vanished[0]];
+    }
+    for (const square of vanished) delete beliefs[square];
+    lastSeen = now;
+  }
+
+  function learnFromAttack(attackerKind, target, before, after) {
+    const wasEnemy = before[target] && before[target].owner === "human";
+    if (!wasEnemy) return null;
+    const nowOurs = after[target] && after[target].owner === "bot";
+    if (nowOurs) { delete beliefs[target]; return "won"; }
+    if (!after[target]) { delete beliefs[target]; return "traded"; }
+    // Their piece held the square, so it beats our attacker. Intersect with
+    // anything we already knew about it.
+    const survivors = window.JunqiEngine.survivorsOf(attackerKind);
+    beliefs[target] = beliefs[target]
+      ? beliefs[target].filter((k) => survivors.includes(k))
+      : survivors;
+    return "lost";
+  }
+
+  /**
    * The engine is handed a fresh state each turn, because their DOM exposes no
    * structured battle log to rebuild belief from. With no history it cannot
    * see that it is repeating itself, and it oscillated D8-D9-D8-D9 for six
@@ -165,24 +236,33 @@
 
   async function step(difficulty) {
     if (!ourTurn()) return { acted: false, reason: "not our turn" };
-    const board = readBoard();
-    let move = window.JunqiEngine.chooseMove(board, difficulty);
+    const before = readBoard();
+    reconcileOpponentMoves(before);
+    let move = window.JunqiEngine.chooseMove(before, difficulty, beliefs);
     for (let retry = 0; retry < 4 && undoesLastMove(move); retry += 1) {
-      move = window.JunqiEngine.chooseMove(board, difficulty);
+      move = window.JunqiEngine.chooseMove(before, difficulty, beliefs);
     }
-    const before = JSON.stringify(readBoard());
+    const attackerKind = before[move.from] && before[move.from].kind;
+    const snapshot = JSON.stringify(before);
     squareAt(move.from).click();
     await sleep(200);
     squareAt(move.to).click();
     await sleep(320);
+    const after = readBoard();
     // A click the page ignores would otherwise be re-issued forever.
-    const landed = JSON.stringify(readBoard()) !== before;
+    const landed = JSON.stringify(after) !== snapshot;
+    let outcome = null;
     if (landed) {
+      outcome = learnFromAttack(attackerKind, move.to, before, after);
+      lastSeen = redSquares(after);
       recent.push(move);
       if (recent.length > 8) recent.shift();
-      trajectory.push(`${trajectory.length + 1} ${move.from}-${move.to}`);
+      trajectory.push(
+        `${trajectory.length + 1} ${move.from}-${move.to}` +
+        (outcome ? ` (${outcome})` : ""),
+      );
     }
-    return { acted: landed, move, landed };
+    return { acted: landed, move, landed, outcome, beliefs: Object.keys(beliefs).length };
   }
 
   window.__junqiAdapter = {
@@ -193,6 +273,7 @@
     finished,
     statusText,
     trajectory,
+    beliefs,
     step,
     /** Play until it is no longer our move to make. */
     async run(maxPlies = 200, difficulty = "focused") {
