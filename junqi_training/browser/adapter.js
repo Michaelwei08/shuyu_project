@@ -139,13 +139,22 @@
     }
     // Last resort: whatever ended up frozen in the spare headquarters must be
     // cheap, even if the rest of the layout could not be reached.
-    const EXPENDABLE = ["LIEUTENANT", "CAPTAIN", "ENGINEER", "MAJOR"];
+    // Cheapest first, so the fallback still improves things when no ideal
+    // donor is free -- a brigadier ended up frozen in a headquarters because
+    // the whitelist had no available match and the pass simply gave up.
+    const CHEAPNESS = [
+      "LIEUTENANT", "CAPTAIN", "ENGINEER", "MAJOR", "COLONEL",
+      "BRIGADIER", "MAJOR_GENERAL", "BOMB", "GENERAL", "COMMANDER",
+    ];
+    const EXPENDABLE = CHEAPNESS.slice(0, 3);
     for (const hq of HEADQUARTERS_SQUARES) {
       const now = ourLayout();
       if (now[hq] === "FLAG" || EXPENDABLE.includes(now[hq])) continue;
-      const donor = Object.keys(now).find(
-        (s) => !HEADQUARTERS_SQUARES.includes(s) && EXPENDABLE.includes(now[s]),
-      );
+      const ceiling = CHEAPNESS.indexOf(now[hq]);
+      const donor = Object.keys(now)
+        .filter((s) => !HEADQUARTERS_SQUARES.includes(s) &&
+          now[s] !== "MINE" && CHEAPNESS.indexOf(now[s]) < ceiling)
+        .sort((x, y) => CHEAPNESS.indexOf(now[x]) - CHEAPNESS.indexOf(now[y]))[0];
       if (!donor) continue;
       squareAt(hq).click();
       await sleep(140);
@@ -228,7 +237,13 @@
       // other direction: their AI replies within about a second, so a capture
       // we made and they immediately recaptured read back as a loss. That
       // over-reported losses 27 to 9 in a game we finished 11 pieces to 5.
-      if (!now[from]) return now;
+      if (!now[from]) {
+        // The source clears a frame before the destination repaints, so
+        // reading immediately still mistook wins for losses. One extra tick
+        // lets the target settle while staying well ahead of their ~1s reply.
+        await sleep(160);
+        return readBoard();
+      }
     }
     return readBoard();
   }
