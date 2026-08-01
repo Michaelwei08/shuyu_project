@@ -9,28 +9,47 @@ Source of truth is `military/`. Regenerate with:
 
     python scripts/sync_remote.py push
 
-Pure Python, no third-party dependencies. Python 3.10+. Start with:
+Pure Python, no third-party dependencies, but it needs **Python 3.10+**
+(dataclass slots, `zip(strict=)`).
 
-    cd junqi_training
-    python3 -m unittest discover -s tests
+## First: pin an interpreter
+
+`python3` on a shared box is usually the system one and too old. Do not rely on
+`conda activate` -- with no argument it selects base, which on some machines
+resolves to `/usr` and is not a conda env at all (`conda list` then fails with
+"Not a conda environment: /usr").
+
+    conda env list                # NOT `conda list`
+    ls -d ~/.conda/envs/*/
+
+Pick one and pin it for the session, then check it before anything else:
+
+    PY=~/.conda/envs/junqi/bin/python     # substitute the env you found
+    $PY -c 'import sys; print(sys.version)'
+    cd junqi_training && $PY -m unittest discover -s tests
+
+Expect 35 tests, 1 skipped (the web-weights sync check; `web/` is not shipped
+here). Pick a worker count too -- this is CPU-bound, and on a dedicated box
+most cores is right:
+
+    W=$(( $(nproc) - 2 ))
 
 ## Acceptance runs for the 2026-08-01 changes
 
-Three changes need a paired verdict. Each is isolated by a baseline model in
-`models/ab/`, because `compare()` varies weights and not code. Set `--workers`
-to your vCPU count; at ~2.6 core-seconds per game, 800 games is roughly 35
-core-minutes per run.
+Four changes need a paired verdict. Each is isolated by a baseline model in
+`models/ab/`, because `compare()` varies weights and not code. At ~2.6
+core-seconds per game, 800 games is roughly 35 core-minutes per run.
 
     # 1. blind-attack pricing + defender supply, together
-    python3 -m junqi.benchmark --games 800 --no-history --workers N \
+    $PY -m junqi.benchmark --games 800 --no-history --workers $W \
         --baseline models/ab/pre-2026-08-01.json
 
     # 2. blind-attack pricing alone
-    python3 -m junqi.benchmark --games 800 --no-history --workers N \
+    $PY -m junqi.benchmark --games 800 --no-history --workers $W \
         --baseline models/ab/no-blind.json
 
     # 3. defender supply alone
-    python3 -m junqi.benchmark --games 800 --no-history --workers N \
+    $PY -m junqi.benchmark --games 800 --no-history --workers $W \
         --baseline models/ab/no-supply.json
 
 Deployment is not a weight, so it has its own switch. `--screen-cap` changes
@@ -38,7 +57,7 @@ only the subject's own layout -- the opposing army on a given seed is
 untouched, which is what keeps the comparison paired:
 
     # 4. two-mine flag screen vs the old three-mine seal
-    python3 -m junqi.benchmark --games 800 --no-history --workers N \
+    $PY -m junqi.benchmark --games 800 --no-history --workers $W \
         --baseline models/bot_weights.json \
         --screen-cap 2 --baseline-screen-cap 3
 
@@ -53,8 +72,8 @@ defaults and are not the opponents they were trained as.
 
 Only after those verdicts should training resume from the new baseline:
 
-    python3 -m junqi.training --generations 8 --screen-games 200 \
-        --accept-games 600 --workers N
+    $PY -m junqi.training --generations 8 --screen-games 200 \
+        --accept-games 600 --workers $W
 
 Only `models/` is meant to travel back. After the run, from `military/`:
 
