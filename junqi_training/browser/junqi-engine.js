@@ -134,6 +134,19 @@ var JunqiEngine = (function(exports) {
 	function moveDistance(source, target) {
 		return MOVE_DISTANCE[source][target];
 	}
+	/**
+	* True when only an engineer could make this move.
+	*
+	* Engineers alone turn corners on the railway, so a move reachable by the
+	* engineer's rail BFS but not by a step or a straight slide announces the
+	* piece's rank to anyone watching. Spending that disguise for nothing is how
+	* an engineer gets picked off.
+	*/
+	function revealsEngineer(board, from, to) {
+		if (ROAD_NEIGHBORS[from].includes(to)) return false;
+		if (railDestinations(from, "CAPTAIN", board).includes(to)) return false;
+		return railDestinations(from, "ENGINEER", board).includes(to);
+	}
 	function coordinate(index) {
 		return `${String.fromCharCode(65 + colOf(index))}${rowOf(index) + 1}`;
 	}
@@ -184,10 +197,12 @@ var JunqiEngine = (function(exports) {
 	* collapses this to a single square. Reads occupancy only, never a rank, so
 	* either side may use it against the other.
 	*/
-	function liveFlagSquares(board, owner) {
+	function liveFlagSquares(board, owner, knowledge) {
 		const held = ownHeadquarters(owner).filter((index) => board[index]?.owner === owner);
 		const revealed = held.filter((index) => board[index]?.revealed);
-		return revealed.length ? revealed : held;
+		if (revealed.length) return revealed;
+		const possible = knowledge ? held.filter((index) => !knowledge[index] || knowledge[index].includes("FLAG")) : held;
+		return possible.length ? possible : held;
 	}
 	function legalMoves(board, owner) {
 		const moves = [];
@@ -616,7 +631,8 @@ var JunqiEngine = (function(exports) {
 		eval_hq_defense_certain: 3.0566762473,
 		eval_hq_breach: 26,
 		eval_hq_guard: 5.5,
-		eval_commander: 0
+		eval_commander: 0,
+		engineer_expose: -6
 	};
 	//#endregion
 	//#region lib/bot.ts
@@ -665,8 +681,9 @@ var JunqiEngine = (function(exports) {
 		const target = state.board[move.to];
 		let score = (owner === "bot" ? 1 : -1) * (rowOf(move.to) - rowOf(move.from)) * WEIGHTS.forward;
 		if (CAMPS.has(move.to)) score += WEIGHTS.camp;
+		if (piece.kind === "ENGINEER" && revealsEngineer(state.board, move.from, move.to)) score += WEIGHTS.engineer_expose;
 		const enemy = other(owner);
-		const enemyFlagSquares = liveFlagSquares(state.board, enemy);
+		const enemyFlagSquares = liveFlagSquares(state.board, enemy, enemy === "human" ? state.knowledge : void 0);
 		const certain = enemyFlagSquares.length === 1;
 		if (target) {
 			score += WEIGHTS.capture;
@@ -700,7 +717,7 @@ var JunqiEngine = (function(exports) {
 	*/
 	function flagPressure(state) {
 		let value = 0;
-		const attacking = liveFlagSquares(state.board, "human");
+		const attacking = liveFlagSquares(state.board, "human", state.knowledge);
 		const reach = closestRaider(state.board, "bot", attacking);
 		if (reach !== null) value += Math.max(0, EVAL_HORIZON - reach) * (attacking.length === 1 ? WEIGHTS.eval_hq_attack_certain : WEIGHTS.eval_hq_attack);
 		const defending = liveFlagSquares(state.board, "bot");

@@ -107,7 +107,15 @@
    */
   async function installDeployment() {
     const target = window.JunqiEngine.suggestDeployment();
-    const squares = Object.keys(target);
+    // Their UI validates every swap, so an intermediate that puts a mine off
+    // the rear rows, a bomb on the front row or the flag outside a
+    // headquarters is simply refused -- 15 of 23 were, in the first attempt.
+    // Settle the constrained ranks first: once all three mines sit on their
+    // targets no later swap can displace one, and the same for flag and bombs.
+    const priority = { FLAG: 0, MINE: 1, BOMB: 2 };
+    const squares = Object.keys(target).sort(
+      (a, b) => (priority[target[a]] ?? 3) - (priority[target[b]] ?? 3),
+    );
     let swaps = 0;
     let refused = 0;
     for (const square of squares) {
