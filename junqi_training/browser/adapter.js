@@ -86,6 +86,49 @@
     return board;
   }
 
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  /** Our own ranks, keyed by square, in the engine's frame. */
+  function ourLayout() {
+    const map = {};
+    scan().forEach((cell, index) => {
+      if (cell && cell.side === "bot") map[coordinate(index)] = LABEL_TO_KIND[cell.label];
+    });
+    return map;
+  }
+
+  /**
+   * Replace their default opening with one from our generator.
+   *
+   * Their deployment UI swaps two of your own pieces per click-pair, same as
+   * ours, so any legal target layout is reachable by a permutation sort. This
+   * matters: the generator screens the flag headquarters with all three mines,
+   * which is the defence that stretched a real game from ply 37 to 57.
+   */
+  async function installDeployment() {
+    const target = window.JunqiEngine.suggestDeployment();
+    const squares = Object.keys(target);
+    let swaps = 0;
+    let refused = 0;
+    for (const square of squares) {
+      const now = ourLayout();
+      if (now[square] === target[square]) continue;
+      const donor = squares.find(
+        (s) => s !== square && now[s] === target[square] && now[s] !== target[s],
+      );
+      if (!donor) { refused += 1; continue; }
+      squareAt(square).click();
+      await sleep(140);
+      squareAt(donor).click();
+      await sleep(200);
+      if (ourLayout()[square] === target[square]) swaps += 1;
+      else refused += 1;
+    }
+    const final = ourLayout();
+    const wrong = squares.filter((s) => final[s] !== target[s]);
+    return { swaps, refused, mismatched: wrong.length, target };
+  }
+
   const statusText = () => (document.body.innerText.match(/现在是.*?回合[！!]?/) || [])[0] || "";
   const ourTurn = () => statusText().includes("蓝方");
   const finished = () => /获胜|胜利|结束|失败|赢/.test(document.body.innerText.slice(0, 400));
@@ -98,19 +141,46 @@
 
   const trajectory = [];
 
+  const recent = [];
+
+  /**
+   * The engine is handed a fresh state each turn, because their DOM exposes no
+   * structured battle log to rebuild belief from. With no history it cannot
+   * see that it is repeating itself, and it oscillated D8-D9-D8-D9 for six
+   * plies in a real game. Reject a move that simply undoes the last one, and
+   * let the search's noise produce an alternative.
+   */
+  function undoesLastMove(move) {
+    const last = recent[recent.length - 1];
+    return Boolean(last && last.from === move.to && last.to === move.from);
+  }
+
   async function step(difficulty) {
     if (!ourTurn()) return { acted: false, reason: "not our turn" };
     const board = readBoard();
-    const move = window.JunqiEngine.chooseMove(board, difficulty);
+    let move = window.JunqiEngine.chooseMove(board, difficulty);
+    for (let retry = 0; retry < 4 && undoesLastMove(move); retry += 1) {
+      move = window.JunqiEngine.chooseMove(board, difficulty);
+    }
+    const before = JSON.stringify(readBoard());
     squareAt(move.from).click();
-    await new Promise((r) => setTimeout(r, 220));
+    await sleep(200);
     squareAt(move.to).click();
-    trajectory.push(`${trajectory.length + 1} ${move.from}-${move.to}`);
-    return { acted: true, move };
+    await sleep(320);
+    // A click the page ignores would otherwise be re-issued forever.
+    const landed = JSON.stringify(readBoard()) !== before;
+    if (landed) {
+      recent.push(move);
+      if (recent.length > 8) recent.shift();
+      trajectory.push(`${trajectory.length + 1} ${move.from}-${move.to}`);
+    }
+    return { acted: landed, move, landed };
   }
 
   window.__junqiAdapter = {
     readBoard,
+    ourLayout,
+    installDeployment,
     ourTurn,
     finished,
     statusText,
