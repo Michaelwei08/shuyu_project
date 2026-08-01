@@ -387,6 +387,29 @@ class GameTests(unittest.TestCase):
             move = agent.choose_move(game, Owner.HUMAN)
             self.assertIn(move, game.legal_moves(Owner.HUMAN), spec.name)
 
+    def test_an_anchored_pool_does_not_track_the_model_under_test(self) -> None:
+        """Opponents must be identical on both sides of a comparison.
+
+        Without an anchor, `play_match` builds a weight-driven opponent from
+        the *subject's* weights, so a candidate is judged against a distorted
+        copy of itself while the baseline is judged against a copy of itself --
+        and the pool stops being a yardstick.
+        """
+        loose = {spec.name for spec in standard_pool().specs if spec.weights_path}
+        self.assertEqual(loose, set())
+
+        anchored = standard_pool(anchor="models/defaults.json")
+        weight_driven = [
+            spec for spec in anchored.specs if spec.kind in {"heuristic", "search"}
+        ]
+        self.assertTrue(weight_driven)
+        for spec in weight_driven:
+            self.assertEqual(spec.weights_path, "models/defaults.json", spec.name)
+        # random / hqrush ignore weights entirely, so they need no anchor.
+        for spec in anchored.specs:
+            if spec.kind in {"random", "hqrush"}:
+                self.assertIsNone(spec.weights_path, spec.name)
+
     def test_identical_weights_produce_a_zero_paired_difference(self) -> None:
         pool = Pool([AgentSpec("quiet", "heuristic", noise=0.0)])
         verdict = compare(BotWeights(), BotWeights(), pool, [1, 2], workers=1)

@@ -163,25 +163,58 @@ class Pool:
 
 
 def standard_pool(
-    stable: str | None = None, history: list[str] | None = None
+    stable: str | None = None,
+    history: list[str] | None = None,
+    anchor: str | None = None,
 ) -> Pool:
     """The default judging pool.
 
-    Cheap opponents outnumber expensive ones so that a 500-game round stays
-    affordable; the expensive `search` tiers are where the signal is.
+    `anchor` pins every weight-driven opponent to one fixed model file. Without
+    it, `play_match` builds those opponents from *the subject's own weights*, so
+    the opponents change with the model under test and the pool stops being a
+    yardstick: a candidate would be measured against a distorted copy of itself
+    while the baseline is measured against a distorted copy of *itself*. Always
+    pass an anchor when comparing two models.
     """
     specs = [
         AgentSpec("random", "random"),
-        AgentSpec("heuristic", "heuristic"),
-        AgentSpec("heuristic-quiet", "heuristic", noise=0.02),
-        AgentSpec("material", "heuristic", weights_style="material"),
-        AgentSpec("defensive", "heuristic", weights_style="defensive"),
-        AgentSpec("engineer", "heuristic", weights_style="engineer"),
+        AgentSpec("heuristic", "heuristic", weights_path=anchor),
+        AgentSpec("heuristic-quiet", "heuristic", weights_path=anchor, noise=0.02),
+        AgentSpec(
+            "material", "heuristic", weights_path=anchor, weights_style="material"
+        ),
+        AgentSpec(
+            "defensive", "heuristic", weights_path=anchor, weights_style="defensive"
+        ),
+        AgentSpec(
+            "engineer", "heuristic", weights_path=anchor, weights_style="engineer"
+        ),
         AgentSpec("hqrush", "hqrush"),
         AgentSpec("hqrush-careful", "hqrush", caution=2.0),
-        AgentSpec("search-shallow", "search", samples=1, beam_width=4, reply_width=1),
-        AgentSpec("search-mid", "search", samples=3, beam_width=8, reply_width=3),
-        AgentSpec("search-deep", "search", samples=6, beam_width=10, reply_width=4),
+        AgentSpec(
+            "search-shallow",
+            "search",
+            weights_path=anchor,
+            samples=1,
+            beam_width=4,
+            reply_width=1,
+        ),
+        AgentSpec(
+            "search-mid",
+            "search",
+            weights_path=anchor,
+            samples=3,
+            beam_width=8,
+            reply_width=3,
+        ),
+        AgentSpec(
+            "search-deep",
+            "search",
+            weights_path=anchor,
+            samples=6,
+            beam_width=10,
+            reply_width=4,
+        ),
     ]
     if stable is not None:
         specs.append(

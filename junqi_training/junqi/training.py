@@ -106,7 +106,15 @@ def train(
 ) -> BotWeights:
     rng = random.Random(seed)
     incumbent = start or BotWeights()
-    pool = standard_pool(history=discover_history(archive_dir))
+    # Opponents must be identical for candidate and incumbent, so pin the
+    # weight-driven ones to a fixed anchor rather than letting them be built
+    # from whichever model is being measured.
+    anchor = output.parent / "defaults.json"
+    if not anchor.exists():
+        BotWeights().save(anchor)
+    pool = standard_pool(
+        history=discover_history(archive_dir), anchor=str(anchor)
+    )
     scale = 0.25
     accepted = 0
 
@@ -135,7 +143,9 @@ def train(
             label = f"gen{generation:03d}"
             archive(incumbent, archive_dir, label)
             incumbent.save(output)
-            pool = standard_pool(history=discover_history(archive_dir))
+            pool = standard_pool(
+                history=discover_history(archive_dir), anchor=str(anchor)
+            )
             print(f"  ACCEPTED -> {output} (archived as {label})", flush=True)
             # 1/5 success rule: widen after a hit, shrink while missing.
             scale = min(0.6, scale * 1.3)

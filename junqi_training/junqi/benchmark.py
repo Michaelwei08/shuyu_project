@@ -19,6 +19,9 @@ from .bot import BotWeights
 from .opponents import discover_history, standard_pool
 
 
+DEFAULT_ANCHOR = Path("models/defaults.json")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="对手池基准评测")
     parser.add_argument("--model", type=Path, default=Path("models/bot_weights.json"))
@@ -38,6 +41,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-history",
         action="store_true",
         help="不要把历史模型加入对手池",
+    )
+    parser.add_argument(
+        "--anchor",
+        type=Path,
+        default=None,
+        help=(
+            "把对手池中所有依赖权重的对手固定到这个模型文件。"
+            f"默认 {DEFAULT_ANCHOR}（存在时）。不固定的话，对手会跟着被测模型一起变，"
+            "对手池就不再是一把尺子"
+        ),
     )
     parser.add_argument(
         "--baseline",
@@ -60,7 +73,11 @@ def main() -> None:
         else BotWeights()
     )
     history = [] if arguments.no_history else discover_history(arguments.archive)
-    pool = standard_pool(history=history)
+    anchor = arguments.anchor
+    if anchor is None and DEFAULT_ANCHOR.exists():
+        anchor = DEFAULT_ANCHOR
+    pool = standard_pool(history=history, anchor=str(anchor) if anchor else None)
+    print(f"anchor: {anchor if anchor else 'NONE (opponents track the model)'}")
     print(f"pool: {len(pool)} opponents -> {[s.name for s in pool.specs]}")
 
     per_block = max(1, arguments.games // max(1, arguments.seeds))
