@@ -90,6 +90,11 @@ class BotWeights:
     # than a constant purely so the paired harness can A/B it: a code-level
     # switch would apply to both sides of a comparison and cancel out.
     use_move_distance: float = 1.0
+    # Where the headquarters distance terms fall to zero. Manhattan spans 0..15
+    # so 12 suited it; move distance spans 0..5, which is why this was dropped
+    # to 6. Both went in together and may pull opposite ways, so it is a weight
+    # too -- the metric and its rescaling need separating.
+    eval_horizon: float = 6.0
 
     @classmethod
     def load(cls, path: str | Path) -> "BotWeights":

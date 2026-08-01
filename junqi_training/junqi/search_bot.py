@@ -347,7 +347,7 @@ class SearchBot:
         attacking = game.flag_candidates(owner.other)
         reach = self._closest_raider(game, owner, attacking)
         if reach is not None:
-            value += max(0, EVAL_HORIZON - reach) * (
+            value += max(0.0, weights.eval_horizon - reach) * (
                 weights.eval_hq_attack_certain
                 if len(attacking) == 1
                 else weights.eval_hq_attack
@@ -355,7 +355,7 @@ class SearchBot:
         defending = game.flag_candidates(owner)
         threat = self._closest_raider(game, owner.other, defending)
         if threat is not None:
-            value -= max(0, EVAL_HORIZON - threat) * (
+            value -= max(0.0, weights.eval_horizon - threat) * (
                 weights.eval_hq_defense_certain
                 if len(defending) == 1
                 else weights.eval_hq_defense
