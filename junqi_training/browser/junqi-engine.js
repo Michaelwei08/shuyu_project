@@ -620,7 +620,7 @@ var JunqiEngine = (function(exports) {
 		hq_strike: 15.7040728292,
 		mine_risk: .5,
 		engineer_mine: 3.9957507745,
-		engineer_waste: -2.7935662952,
+		engineer_waste: -12,
 		noise: .1594516286,
 		eval_material: 1.7,
 		eval_mobility: .0522149392,
