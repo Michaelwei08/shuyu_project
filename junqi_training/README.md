@@ -34,43 +34,42 @@ most cores is right:
 
     W=$(( $(nproc) - 2 ))
 
-## Acceptance runs for the 2026-08-01 changes
+## Where the 2026-08-01 round landed (806 paired games each)
 
-Four changes need a paired verdict. Each is isolated by a baseline model in
-`models/ab/`, because `compare()` varies weights and not code. At ~2.6
-core-seconds per game, 800 games is roughly 35 core-minutes per run.
+    blind pricing       +0.0218 +/- 0.0226, p = 0.17   inconclusive, kept
+    defender supply     +0.0008 +/- 0.0097, p = 0.47   dead, now ships at 0
+    screen cap 2 vs 3   -0.0985 +/- 0.0217             wrong, reverted to 3
 
-    # 1. blind-attack pricing + defender supply, together
-    $PY -m junqi.benchmark --games 800 --no-history --workers $W \
+Two of those three were my ideas and the measurement rejected them, which is
+the harness working. `eval_hq_supply` is not just unproven -- an SE of 0.0097
+excludes anything above +0.016. The screen cap was the largest effect in the
+round, in the wrong direction, and instrumenting 208 games showed the flag
+falling at the same rate under both caps (23/104 vs 21/104), so the stated
+reason for capping was not the mechanism either.
+
+## The one run still worth doing
+
+Only the blind-attack pricing is live, and 806 games cannot settle it: the
+minimum detectable improvement at that size is +0.037, larger than the effect
+itself. Two independent runs put it at +0.0173 and +0.0218, both positive.
+Resolving it needs about three times the sample:
+
+    $PY -m junqi.benchmark --games 2400 --seeds 3 --no-history --workers $W \
         --baseline models/ab/pre-2026-08-01.json
 
-    # 2. blind-attack pricing alone
-    $PY -m junqi.benchmark --games 800 --no-history --workers $W \
-        --baseline models/ab/no-blind.json
+At ~2.6 core-seconds per game that is roughly 3.5 core-hours, so a few minutes
+of wall time on 48 cores. `--seeds 3` splits it into disjoint opening blocks,
+so a verdict does not rest on one lucky set of deployments.
 
-    # 3. defender supply alone
-    $PY -m junqi.benchmark --games 800 --no-history --workers $W \
-        --baseline models/ab/no-supply.json
+Accept on `p < 0.05` with a positive paired difference. If it rejects, read the
+"minimum detectable improvement" line before concluding: above the plausible
+effect size it means the sample was too small, not that the change is dead.
 
-Deployment is not a weight, so it has its own switch. `--screen-cap` changes
-only the subject's own layout -- the opposing army on a given seed is
-untouched, which is what keeps the comparison paired:
+`--no-history` matters. The archived models in `models/history/` predate
+`blind_battle`, so they would load with the new default and are not the
+opponents they were trained as.
 
-    # 4. two-mine flag screen vs the old three-mine seal
-    $PY -m junqi.benchmark --games 800 --no-history --workers $W \
-        --baseline models/bot_weights.json \
-        --screen-cap 2 --baseline-screen-cap 3
-
-Accept on `p < 0.05` with a positive paired difference. If a run rejects, check
-the printed "minimum detectable improvement" before concluding anything: above
-the plausible effect size it means the sample was too small, not that the
-change is dead. Add `--seeds 3` for a release gate.
-
-`--no-history` matters here. The archived models in `models/history/` predate
-`blind_battle` and `eval_hq_supply`, so they would be loaded with the new
-defaults and are not the opponents they were trained as.
-
-Only after those verdicts should training resume from the new baseline:
+Only after that verdict should training resume from the new baseline:
 
     $PY -m junqi.training --generations 8 --screen-games 200 \
         --accept-games 600 --workers $W

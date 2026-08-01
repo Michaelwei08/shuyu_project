@@ -565,34 +565,41 @@ class GameTests(unittest.TestCase):
         self.assertGreater(home, away, "supply term is switched off")
         self.assertAlmostEqual(home - away, 2 * weights.eval_hq_supply, places=6)
 
-    def test_the_flag_screen_leaves_room_for_a_mobile_defender(self) -> None:
-        """A headquarters' three neighbours are alternative doors, not three
-        locks on one door -- the attacker only opens the cheapest, and in eight
-        of eight replayed flag losses exactly one mine was cleared. Sealing all
-        three also pins `eval_hq_guard` at zero, because a mine cannot move."""
+    def test_the_flag_screen_cap_is_honoured(self) -> None:
+        """The cap is a real knob, which is how the harness caught a bad idea.
+
+        Capping the screen at 2 was measured at -0.0985 +/- 0.0217 over 806
+        paired games, so the shipped policy is back to a full seal. This asserts
+        the *plumbing*, not the policy: a lower cap must genuinely keep mines off
+        the flag's doors, or `--screen-cap` would silently compare nothing.
+        """
+        def screen_mines(owner: Owner, seed: int, cap: int | None) -> int:
+            layout = strategic_deployment(owner, random.Random(seed), screen_cap=cap)
+            flag = next(
+                position
+                for position, piece in layout.items()
+                if piece.kind == PieceKind.FLAG
+            )
+            return sum(
+                1
+                for row, column in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                if (square := (flag[0] + row, flag[1] + column)) in layout
+                and layout[square].kind == PieceKind.MINE
+            )
+
         for seed in range(40):
             for owner in Owner:
-                layout = strategic_deployment(owner, random.Random(seed))
-                flag = next(
-                    position
-                    for position, piece in layout.items()
-                    if piece.kind == PieceKind.FLAG
+                for cap in (1, 2, 3):
+                    self.assertLessEqual(
+                        screen_mines(owner, seed, cap), cap, f"seed {seed} cap {cap}"
+                    )
+                self.assertLessEqual(
+                    screen_mines(owner, seed, None), SCREEN_MINE_CAP, f"seed {seed}"
                 )
-                neighbours = [
-                    (flag[0] + row, flag[1] + column)
-                    for row, column in ((1, 0), (-1, 0), (0, 1), (0, -1))
-                    if (flag[0] + row, flag[1] + column) in layout
-                ]
-                mines = [
-                    square
-                    for square in neighbours
-                    if layout[square].kind == PieceKind.MINE
-                ]
-                self.assertLessEqual(len(mines), SCREEN_MINE_CAP, f"seed {seed}")
-                self.assertTrue(
-                    any(layout[square].kind.movable for square in neighbours),
-                    f"seed {seed}: flag sealed behind immovable pieces",
-                )
+        # A cap of 1 must actually leave doors open, or the knob is inert.
+        capped = sum(screen_mines(Owner.BOT, seed, 1) for seed in range(40))
+        sealed = sum(screen_mines(Owner.BOT, seed, 3) for seed in range(40))
+        self.assertLess(capped, sealed)
 
     def test_the_screen_cap_changes_only_the_subject_army(self) -> None:
         """What makes the deployment change measurable by the paired harness.

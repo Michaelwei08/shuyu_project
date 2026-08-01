@@ -113,11 +113,11 @@ def random_deployment(owner: Owner, rng: random.Random) -> dict[Position, Piece]
     return result
 
 
-#: Most mines allowed on the flag headquarters' own neighbours. Was effectively
-#: 3 (a full seal) until ten replayed games showed the seal losing every time;
-#: see `_build_strategic`. Kept as a parameter so the paired harness can A/B a
-#: capped screen against the old full seal.
-SCREEN_MINE_CAP = 2
+#: Most mines allowed on the flag headquarters' own neighbours. Three is a full
+#: seal. Dropping this to 2 was tried on 2026-08-01 and **measured much worse**
+#: -- see `_build_strategic`. Kept as a parameter so the paired harness can A/B
+#: it; that is how the attempt was caught.
+SCREEN_MINE_CAP = 3
 
 
 def strategic_deployment(
@@ -169,15 +169,20 @@ def _build_strategic(
     rng.shuffle(screen)
     rng.shuffle(rear_free)
     # A headquarters has exactly three orthogonal neighbours, all of them in the
-    # rear rows, so all three mines *can* seal the flag. Ten replayed games say
-    # not to. Those neighbours are alternative doors, not three locks on one
-    # door -- the attacker only has to open the cheapest, and in eight of eight
-    # flag losses exactly one mine was cleared, always the square the killer
-    # then stood on. Sealing also costs more than it buys: a mine cannot move,
-    # so a full screen leaves no square from which the bot can ever post a
-    # mobile defender, and `eval_hq_guard` is pinned at zero until the bot's own
-    # screen has been destroyed. Leave at least one neighbour to a piece that
-    # can fight back and be replaced.
+    # rear rows, so all three mines can seal the flag.
+    #
+    # Capping this at 2 looked obviously right and measured **-0.0985 +/-
+    # 0.0217 over 806 paired games** -- about eight points of win rate, the
+    # largest single effect in that round and four times the size of anything
+    # it was bundled with. The argument for capping was that the neighbours are
+    # alternative doors rather than three locks on one door, since in eight of
+    # eight replayed flag losses exactly one mine was cleared, always the square
+    # the killer then stood on. That observation is true and the inference from
+    # it was wrong: instrumenting 208 pool games showed the flag falling at
+    # essentially the same rate under both caps (23/104 capped vs 21/104
+    # sealed), so the loss was never about flag defence. A mine on a door also
+    # never leaves; an ordinary piece on a door is one the bot walks away from
+    # for any capture worth more than `eval_hq_guard`.
     cap = SCREEN_MINE_CAP if screen_cap is None else screen_cap
     guards = screen[: cap if rng.random() < 0.75 else max(1, cap - 1)]
     # Exclude the whole screen from the tail, not just the chosen guards, or the

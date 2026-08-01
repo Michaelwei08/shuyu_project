@@ -376,12 +376,17 @@ class SearchBot:
                 # flag takes it next ply unless we remove it. The linear term
                 # above barely distinguishes that from a distant piece.
                 value -= weights.eval_hq_breach
-            if threat <= REINFORCE_RANGE:
+            # Measured dead on 2026-08-01: +0.0008 +/- 0.0097 over 806 paired
+            # games, an SE tight enough to exclude anything above +0.016. Kept
+            # at 0 so the harness can still A/B it (D022), but guarded, because
+            # unlike the other retired coefficients this one is not a free
+            # multiply -- `_cover` walks the board and the move list on every
+            # single evaluation, and the browser's `deep` tier already peaks at
+            # 446ms against a 420ms budget.
+            if weights.eval_hq_supply and threat <= REINFORCE_RANGE:
                 # Supply, not occupancy: a raider this close will be on an
                 # approach square within a ply or two, and by then the only
                 # thing that matters is how many pieces can still answer.
-                # Charged even when nothing has arrived yet, so the search
-                # cannot make it disappear by assuming it recaptures.
                 cover = self._cover(game, owner, defending, own_moves)
                 value -= weights.eval_hq_supply * max(0, MIN_COVER - cover)
         value += weights.eval_hq_guard * self._guards(game, owner, defending)
