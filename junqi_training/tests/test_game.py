@@ -417,6 +417,26 @@ class GameTests(unittest.TestCase):
         self.assertAlmostEqual(verdict.mean_difference, 0.0, places=12)
         self.assertFalse(verdict.significant)
 
+    def test_a_revealed_flag_proves_that_commander_is_dead(self) -> None:
+        """The user's deduction: their commander is gone, so whatever beat our
+        major general can only be the general."""
+        bot = SearchBot(BotWeights(), seed=4)
+        alive = bot._sample_survivors(24, Counter(), random.Random(1))
+        self.assertIn(PieceKind.COMMANDER, alive)
+        gone = bot._sample_survivors(
+            24, Counter(), random.Random(1), commander_dead=True
+        )
+        self.assertNotIn(PieceKind.COMMANDER, gone)
+
+        board = {
+            (0, 1): Piece(Owner.BOT, PieceKind.FLAG, True),  # revealed by death
+            (0, 3): Piece(Owner.BOT, PieceKind.CAPTAIN),
+            (11, 1): Piece(Owner.HUMAN, PieceKind.FLAG),
+        }
+        game = Game(board=board, turn=Owner.HUMAN)
+        self.assertTrue(bot._commander_dead(game, Owner.BOT))
+        self.assertFalse(bot._commander_dead(game, Owner.HUMAN))
+
     def test_only_a_c_e_files_cross_the_river(self) -> None:
         game = Game(
             board={

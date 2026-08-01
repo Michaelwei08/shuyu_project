@@ -80,6 +80,12 @@ class SearchBot:
             if piece.owner == owner.other
         }
         self.knowledge.forget_missing(opponent_positions)
+        if self._commander_dead(game, owner.other):
+            # Their commander is gone, so no surviving piece can be one.
+            self.knowledge.possible = {
+                position: kinds - {PieceKind.COMMANDER}
+                for position, kinds in self.knowledge.possible.items()
+            }
 
     def _rollout(
         self, game: Game, move: Move, owner: Owner, sample_seed: int
@@ -135,10 +141,11 @@ class SearchBot:
             sampled.board.pop(position)
 
         constraints = self.knowledge.possible if self.knowledge is not None else {}
+        commander_dead = self._commander_dead(sampled, hidden_owner)
         assignment: dict[Position, PieceKind] | None = None
         for _ in range(8):
             hidden_kinds = self._sample_survivors(
-                len(hidden_positions), revealed, rng
+                len(hidden_positions), revealed, rng, commander_dead
             )
             assignment = self._assign_constrained(
                 hidden_owner, hidden_positions, hidden_kinds, constraints, rng
@@ -156,16 +163,32 @@ class SearchBot:
         return sampled
 
     @staticmethod
+    def _commander_dead(game: Game, side: Owner) -> bool:
+        """A commander's death is what reveals its own flag, so the two are
+        equivalent. Free, exact, and it collapses a lot of guessing: once the
+        enemy commander is gone, whatever beat our major general can only be
+        the general."""
+        return any(
+            game.board[square].revealed for square in game.flag_candidates(side)
+        )
+
+    @staticmethod
     def _sample_survivors(
-        count: int, revealed: Counter[PieceKind], rng: random.Random
+        count: int,
+        revealed: Counter[PieceKind],
+        rng: random.Random,
+        commander_dead: bool = False,
     ) -> list[PieceKind]:
         """Guess which ranks are still alive without looking at the real board.
 
         Battles are anonymous, so the bot does not know which of the opponent's
-        ranks died -- it may only subtract the ranks it has actually seen.
+        ranks died -- it may only subtract the ranks it has actually seen, plus
+        anything it can deduce.
         """
         pool = Counter(PIECE_COUNTS)
         pool.subtract(revealed)
+        if commander_dead:
+            pool[PieceKind.COMMANDER] = 0
         survivors = list(pool.elements())
         for _ in range(max(0, len(survivors) - count)):
             # The flag is alive while the game is running, so kill it last --
