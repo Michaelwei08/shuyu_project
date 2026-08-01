@@ -71,6 +71,24 @@
   const coordinate = (index) =>
     `${"ABCDE"[index % COLS]}${Math.floor(index / COLS) + 1}`;
 
+  /**
+   * Ranks their UI has exposed, as {square: kind}. Ground truth, no inference.
+   *
+   * An enemy cell normally carries no text, but junqi.app prints the rank once
+   * a piece has been revealed -- including their flag. The adapter used to
+   * discard that label entirely, which is why the bot kept playing on while
+   * the opponent's 军旗 sat face-up on the board.
+   */
+  function revealedEnemy() {
+    const seen = {};
+    scan().forEach((cell, index) => {
+      if (!cell || cell.side !== "human" || !cell.label) return;
+      const kind = LABEL_TO_KIND[cell.label];
+      if (kind) seen[coordinate(index)] = kind;
+    });
+    return seen;
+  }
+
   function readBoard() {
     const board = {};
     scan().forEach((cell, index) => {
@@ -80,6 +98,11 @@
         const kind = LABEL_TO_KIND[cell.label];
         if (!kind) throw new Error(`unknown rank label: "${cell.label}"`);
         entry.kind = kind;
+      } else if (cell.label && LABEL_TO_KIND[cell.label] === "FLAG") {
+        // Our engine treats `revealed` as meaning "this is a flag", so only a
+        // flag may carry it. Other exposed ranks travel via `beliefs`.
+        entry.kind = "FLAG";
+        entry.revealed = true;
       }
       board[coordinate(index)] = entry;
     });
@@ -279,6 +302,11 @@
     if (!ourTurn()) return { acted: false, reason: "not our turn" };
     const before = readBoard();
     reconcileOpponentMoves(before);
+    // Anything their UI has exposed is certain, so it overrides whatever the
+    // diff-based inference guessed. Singleton candidate sets.
+    for (const [square, kind] of Object.entries(revealedEnemy())) {
+      beliefs[square] = [kind];
+    }
     let move = window.JunqiEngine.chooseMove(before, difficulty, beliefs);
     for (let retry = 0; retry < 4 && undoesLastMove(move); retry += 1) {
       move = window.JunqiEngine.chooseMove(before, difficulty, beliefs);
@@ -307,6 +335,7 @@
 
   window.__junqiAdapter = {
     readBoard,
+    revealedEnemy,
     ourLayout,
     installDeployment,
     ourTurn,
