@@ -3,12 +3,16 @@ from __future__ import annotations
 import random
 from collections import Counter
 
-from .board import HEADQUARTERS
+from .board import HEADQUARTERS, move_distance
 from .bot import BotWeights, HeuristicBot, _distance, _piece_value
 from .deployment import headquarters, rear_rows
 from .game import Game
 from .knowledge import OpponentKnowledge
 from .types import PIECE_COUNTS, Move, Owner, Piece, PieceKind, Position
+
+# Nothing on this board is more than five moves from anything else, so the old
+# `12 - distance` horizon left the term almost flat.
+EVAL_HORIZON = 6
 
 
 class SearchBot:
@@ -257,7 +261,7 @@ class SearchBot:
         attacking = game.flag_candidates(owner.other)
         reach = self._closest_raider(game, owner, attacking)
         if reach is not None:
-            value += (12 - reach) * (
+            value += max(0, EVAL_HORIZON - reach) * (
                 weights.eval_hq_attack_certain
                 if len(attacking) == 1
                 else weights.eval_hq_attack
@@ -265,7 +269,7 @@ class SearchBot:
         defending = game.flag_candidates(owner)
         threat = self._closest_raider(game, owner.other, defending)
         if threat is not None:
-            value -= (12 - threat) * (
+            value -= max(0, EVAL_HORIZON - threat) * (
                 weights.eval_hq_defense_certain
                 if len(defending) == 1
                 else weights.eval_hq_defense
@@ -300,11 +304,12 @@ class SearchBot:
     def _closest_raider(
         game: Game, side: Owner, targets: list[Position]
     ) -> int | None:
+        """Distance in *moves*, so a raider sitting on a railway counts as near."""
         if not targets:
             return None
         return min(
             (
-                _distance(position, target)
+                move_distance(position, target)
                 for position, piece in game.board.items()
                 if piece.owner == side
                 and piece.kind.movable

@@ -144,3 +144,40 @@ def straight_rail_destinations(
             if square in occupied:
                 break
     return destinations
+
+
+def _move_distances() -> dict[Position, dict[Position, int]]:
+    """Moves -- not squares -- between every pair, on an empty board.
+
+    Manhattan distance is badly wrong here: a piece on a railway crosses the
+    whole rank in one move, so E2 is two moves from B1 while being Manhattan 4
+    away. Threat and pressure both have to be counted in moves or the bot never
+    sees a rail raid coming.
+
+    Blockers only ever slow a piece down, so the empty board gives a lower
+    bound -- the conservative direction for judging danger.
+    """
+    table: dict[Position, dict[Position, int]] = {}
+    empty: set[Position] = set()
+    for source in _SQUARES:
+        distances = {source: 0}
+        queue = deque([source])
+        while queue:
+            current = queue.popleft()
+            step = distances[current] + 1
+            for neighbor in (
+                ROAD_NEIGHBORS[current] | straight_rail_destinations(current, empty)
+            ):
+                if neighbor not in distances:
+                    distances[neighbor] = step
+                    queue.append(neighbor)
+        table[source] = distances
+    return table
+
+
+MOVE_DISTANCE: dict[Position, dict[Position, int]] = _move_distances()
+UNREACHABLE = ROWS * COLUMNS
+
+
+def move_distance(source: Position, target: Position) -> int:
+    return MOVE_DISTANCE[source].get(target, UNREACHABLE)
