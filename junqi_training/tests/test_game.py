@@ -437,6 +437,36 @@ class GameTests(unittest.TestCase):
         self.assertTrue(bot._commander_dead(game, Owner.BOT))
         self.assertFalse(bot._commander_dead(game, Owner.HUMAN))
 
+    def test_surviving_mines_are_not_killed_off_by_the_casualty_estimate(self) -> None:
+        """Four rear pieces and no mine taken means three mines and the flag."""
+        bot = SearchBot(BotWeights(), seed=9)
+        # Squeeze the opponent down to four hidden pieces with nothing proven.
+        for seed in range(20):
+            alive = Counter(
+                bot._sample_survivors(4, Counter(), random.Random(seed))
+            )
+            self.assertEqual(alive[PieceKind.MINE], 3, "a mine was invented dead")
+            self.assertEqual(alive[PieceKind.FLAG], 1)
+
+        # Once our engineer proves one dead, the estimate must let it go.
+        proven = Counter({PieceKind.MINE: 1})
+        alive = Counter(
+            bot._sample_survivors(4, Counter(), random.Random(1), destroyed=proven)
+        )
+        self.assertEqual(alive[PieceKind.MINE], 2)
+
+    def test_an_engineer_win_proves_a_mine_died(self) -> None:
+        knowledge = OpponentKnowledge(Owner.BOT)
+        win = ObservedMove(
+            move=Move((1, 0), (0, 0)), attacker_owner=Owner.BOT, had_battle=True,
+            outcome=1, own_kind=PieceKind.ENGINEER,
+        )
+        knowledge.observe(win)
+        self.assertEqual(knowledge.destroyed[PieceKind.MINE], 1)
+        # A colonel winning says only "something weaker" -- not nameable.
+        knowledge.observe(replace(win, own_kind=PieceKind.COLONEL))
+        self.assertEqual(knowledge.destroyed[PieceKind.MINE], 1)
+
     def test_only_a_c_e_files_cross_the_river(self) -> None:
         game = Game(
             board={

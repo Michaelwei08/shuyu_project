@@ -145,7 +145,11 @@ class SearchBot:
         assignment: dict[Position, PieceKind] | None = None
         for _ in range(8):
             hidden_kinds = self._sample_survivors(
-                len(hidden_positions), revealed, rng, commander_dead
+                len(hidden_positions),
+                revealed,
+                rng,
+                commander_dead,
+                self.knowledge.destroyed if self.knowledge is not None else None,
             )
             assignment = self._assign_constrained(
                 hidden_owner, hidden_positions, hidden_kinds, constraints, rng
@@ -178,22 +182,38 @@ class SearchBot:
         revealed: Counter[PieceKind],
         rng: random.Random,
         commander_dead: bool = False,
+        destroyed: Counter[PieceKind] | None = None,
     ) -> list[PieceKind]:
         """Guess which ranks are still alive without looking at the real board.
 
-        Battles are anonymous, so the bot does not know which of the opponent's
-        ranks died -- it may only subtract the ranks it has actually seen, plus
-        anything it can deduce.
+        Battles are anonymous, so most casualties have to be estimated. But the
+        estimate was picking victims uniformly, which quietly killed mines the
+        bot had no reason to believe were dead -- and a mine is exactly the
+        piece whose survival makes a rear row impassable. So: subtract the
+        ranks actually seen, subtract the deaths we can prove, then draw the
+        remaining casualties from the ranks that plausibly die.
+
+        With no proven mine kills this leaves all three alive, which is what
+        turns "four pieces left in their back rows" into "three mines and the
+        flag" once the constraint solver places them.
         """
         pool = Counter(PIECE_COUNTS)
         pool.subtract(revealed)
         if commander_dead:
             pool[PieceKind.COMMANDER] = 0
+        for kind, dead in (destroyed or Counter()).items():
+            pool[kind] = max(0, pool[kind] - dead)
+
         survivors = list(pool.elements())
+        # A flag never dies while the game runs; a mine only falls to an
+        # engineer or a bomb, and those we count above.
+        protected = {PieceKind.FLAG, PieceKind.MINE}
         for _ in range(max(0, len(survivors) - count)):
-            # The flag is alive while the game is running, so kill it last --
-            # but never return more kinds than there are squares to fill.
             removable = [
+                index
+                for index, kind in enumerate(survivors)
+                if kind not in protected
+            ] or [
                 index
                 for index, kind in enumerate(survivors)
                 if kind != PieceKind.FLAG
