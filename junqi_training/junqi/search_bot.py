@@ -247,11 +247,31 @@ class SearchBot:
         concealment = self._commander_shield(game, owner) - self._commander_shield(
             game, owner.other
         )
+        squeeze = weights.eval_immobilize * (
+            2.0 ** -self._mobile_count(game, owner.other)
+            - 2.0 ** -self._mobile_count(game, owner)
+        )
         return (
             material * weights.eval_material
             + mobility * weights.eval_mobility
             + concealment * weights.eval_commander
+            + squeeze
             + self._flag_pressure(game, owner)
+        )
+
+    @staticmethod
+    def _mobile_count(game: Game, side: Owner) -> int:
+        """Pieces this side can actually move.
+
+        A side with none of these has lost, whatever material it still holds --
+        mines and flags never move, and a headquarters piece is frozen there.
+        """
+        return sum(
+            1
+            for position, piece in game.board.items()
+            if piece.owner == side
+            and piece.kind.movable
+            and position not in HEADQUARTERS
         )
 
     @staticmethod

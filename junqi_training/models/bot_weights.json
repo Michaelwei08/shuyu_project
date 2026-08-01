@@ -12,7 +12,7 @@
   "hq_strike": 15.704072829235713,
   "mine_risk": 0.5,
   "engineer_mine": 3.9957507745372234,
-  "engineer_waste": -2.7935662952167943,
+  "engineer_waste": -12.0,
   "noise": 0.15945162855551998,
   "eval_material": 1.7,
   "eval_mobility": 0.05221493917316142,
@@ -20,5 +20,10 @@
   "eval_hq_attack": 0.9,
   "eval_hq_attack_certain": 3.0905818960732048,
   "eval_hq_defense": 0.8596938266891327,
-  "eval_hq_defense_certain": 3.056676247319454
+  "eval_hq_defense_certain": 3.056676247319454,
+  "eval_hq_breach": 26.0,
+  "eval_hq_guard": 5.5,
+  "eval_commander": 0.0,
+  "engineer_expose": -6.0,
+  "eval_immobilize": 110.0
 }

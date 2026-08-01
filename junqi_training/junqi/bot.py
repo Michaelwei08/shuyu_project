@@ -5,7 +5,12 @@ import random
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 
-from .board import CAMPS
+from .board import (
+    CAMPS,
+    engineer_rail_destinations,
+    road_neighbors,
+    straight_rail_destinations,
+)
 from .deployment import rear_rows
 from .game import Game, battle_outcome
 from .types import Move, Owner, PieceKind, Position
@@ -39,7 +44,12 @@ class BotWeights:
     hq_strike: float = 14.0
     mine_risk: float = 0.5
     engineer_mine: float = 3.5
-    engineer_waste: float = -4.5
+    # An engineer beats a mine, ties a bomb, and loses to all nine other
+    # ranks. Attacking anything that is not plausibly a mine is simply handing
+    # the piece over -- and it is one of only three answers to a mine. At -4.5
+    # this merely cancelled the capture bonus (+3.2), leaving the bot
+    # indifferent to throwing engineers away.
+    engineer_waste: float = -12.0
     noise: float = 0.18
 
     # --- state evaluation -----------------------------------------------
@@ -64,6 +74,17 @@ class BotWeights:
     # 138, which would make the bot hoard its best piece. Left in at zero so
     # training can revisit it; do not hand-raise it without a paired result.
     eval_commander: float = 0.0
+    # Only engineers turn corners on the railway, so making one of those turns
+    # announces the piece's rank. Spending that disguise for nothing walks the
+    # engineer into an easy capture -- and engineers are the only answer to a
+    # mine, so they are not spare material.
+    engineer_expose: float = -6.0
+    # Taking the flag is not the only way to win: a side with no legal move
+    # loses. Mines and flags never move and a headquarters piece is frozen, so
+    # an opponent can be reduced to zero *mobile* pieces while still holding
+    # six. Material alone barely notices; this makes the last few captures
+    # worth what they actually are.
+    eval_immobilize: float = 110.0
 
     @classmethod
     def load(cls, path: str | Path) -> "BotWeights":
@@ -119,8 +140,10 @@ class HeuristicBot:
         score += direction * (move.dst[0] - move.src[0]) * weights.forward
         if move.dst in CAMPS:
             score += weights.camp
+        if piece.kind == PieceKind.ENGINEER and _reveals_engineer(game, move):
+            score += weights.engineer_expose
 
-        targets = enemy_flag_squares(game, owner)
+        targets = enemy_flag_squares(game, owner, self.knowledge)
         certain = len(targets) == 1
 
         if target is not None:
@@ -170,16 +193,47 @@ class HeuristicBot:
         return score
 
 
-def enemy_flag_squares(game: Game, owner: Owner) -> list[Position]:
+def enemy_flag_squares(
+    game: Game,
+    owner: Owner,
+    knowledge: dict[Position, frozenset[PieceKind]] | None = None,
+) -> list[Position]:
     """Squares where ``owner``'s opponent may be hiding its flag.
 
-    A revealed flag collapses this to one square; otherwise every still-held
-    enemy headquarters is a candidate. Only occupancy is inspected, so this
-    stays inside the hidden-rank invariant.
+    A revealed flag collapses this to one square. Failing that, a *failed*
+    attack on a headquarters proves the square is not the flag -- a flag loses
+    to every rank -- so the other headquarters holds it with certainty. That
+    deduction is already in ``knowledge``: a lost attack records the ranks that
+    beat our piece, and FLAG beats nothing, so it is absent from that set.
+    Occupancy and our own battle history only, so no hidden rank is read.
     """
     candidates = game.flag_candidates(owner.other)
     revealed = [square for square in candidates if game.board[square].revealed]
-    return revealed or candidates
+    if revealed:
+        return revealed
+    if knowledge:
+        possible = [
+            square
+            for square in candidates
+            if PieceKind.FLAG in knowledge.get(square, frozenset({PieceKind.FLAG}))
+        ]
+        if possible:
+            return possible
+    return candidates
+
+
+def _reveals_engineer(game: Game, move: Move) -> bool:
+    """True when only an engineer could have made this move.
+
+    Engineers alone turn corners on the railway, so such a move tells the
+    opponent exactly what the piece is.
+    """
+    if move.dst in road_neighbors(move.src):
+        return False
+    occupied = set(game.board)
+    if move.dst in straight_rail_destinations(move.src, occupied):
+        return False
+    return move.dst in engineer_rail_destinations(move.src, occupied)
 
 
 def _expected_battle(attacker: PieceKind, possible: frozenset[PieceKind]) -> float:
