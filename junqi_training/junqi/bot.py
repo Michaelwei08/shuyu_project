@@ -55,6 +55,15 @@ class BotWeights:
     # capture. These two are the sharp part of the signal.
     eval_hq_breach: float = 26.0
     eval_hq_guard: float = 5.5
+    # A commander's death reveals its own flag, so its life buys concealment
+    # that material value (11, against a general's 10) does not price in.
+    # Tempting, and measurably wrong: at 18.0 this scored -0.0213 +/- 0.0136
+    # over 814 paired games, i.e. worse. The arithmetic agrees -- a commander
+    # attacking a non-rear square only loses to a bomb, about 8%, so the raid
+    # is +9.6 in expectation and deterring it would need a coefficient near
+    # 138, which would make the bot hoard its best piece. Left in at zero so
+    # training can revisit it; do not hand-raise it without a paired result.
+    eval_commander: float = 0.0
 
     @classmethod
     def load(cls, path: str | Path) -> "BotWeights":

@@ -244,10 +244,33 @@ class SearchBot:
             for piece in game.board.values()
         )
         mobility = len(game.legal_moves(owner)) - len(game.legal_moves(owner.other))
+        concealment = self._commander_shield(game, owner) - self._commander_shield(
+            game, owner.other
+        )
         return (
             material * weights.eval_material
             + mobility * weights.eval_mobility
+            + concealment * weights.eval_commander
             + self._flag_pressure(game, owner)
+        )
+
+    @staticmethod
+    def _commander_shield(game: Game, side: Owner) -> float:
+        """1 while this side's commander lives and its flag is still hidden.
+
+        The commander's life is worth exactly the concealment it buys, so the
+        term vanishes once the flag is out -- at that point the commander is
+        just another piece. Evaluated on determinized worlds, so reading the
+        opponent's commander is a guess, not a peek.
+        """
+        squares = game.flag_candidates(side)
+        if not squares or any(game.board[square].revealed for square in squares):
+            return 0.0
+        return float(
+            any(
+                piece.owner == side and piece.kind == PieceKind.COMMANDER
+                for piece in game.board.values()
+            )
         )
 
     def _flag_pressure(self, game: Game, owner: Owner) -> float:
