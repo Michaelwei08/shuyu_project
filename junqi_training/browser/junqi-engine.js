@@ -632,7 +632,8 @@ var JunqiEngine = (function(exports) {
 		eval_hq_breach: 26,
 		eval_hq_guard: 5.5,
 		eval_commander: 0,
-		engineer_expose: -6
+		engineer_expose: -6,
+		eval_immobilize: 110
 	};
 	//#endregion
 	//#region lib/bot.ts
@@ -750,7 +751,19 @@ var JunqiEngine = (function(exports) {
 		}, 0);
 		const mobility = legalMoves(state.board, "bot").length - legalMoves(state.board, "human").length;
 		const concealment = commanderShield(state.board, "bot") - commanderShield(state.board, "human");
-		return material * WEIGHTS.eval_material + mobility * WEIGHTS.eval_mobility + concealment * WEIGHTS.eval_commander + flagPressure(state);
+		const squeeze = WEIGHTS.eval_immobilize * (2 ** -mobileCount(state.board, "human") - 2 ** -mobileCount(state.board, "bot"));
+		return material * WEIGHTS.eval_material + mobility * WEIGHTS.eval_mobility + concealment * WEIGHTS.eval_commander + squeeze + flagPressure(state);
+	}
+	/** Pieces this side can actually move. */
+	function mobileCount(board, owner) {
+		let total = 0;
+		board.forEach((piece, index) => {
+			if (!piece || piece.owner !== owner) return;
+			if (piece.kind === "FLAG" || piece.kind === "MINE") return;
+			if (HEADQUARTERS.has(index)) return;
+			total += 1;
+		});
+		return total;
 	}
 	/**
 	* 1 while this side's commander lives and its flag is still hidden.
