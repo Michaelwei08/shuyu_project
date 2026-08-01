@@ -50,6 +50,11 @@ class BotWeights:
     eval_hq_attack_certain: float = 2.6
     eval_hq_defense: float = 1.1
     eval_hq_defense_certain: float = 3.0
+    # The distance terms above are linear over 0..12, so "they take my flag next
+    # ply" scored only 1.8x "they are six squares away" -- less than a single
+    # capture. These two are the sharp part of the signal.
+    eval_hq_breach: float = 26.0
+    eval_hq_guard: float = 5.5
 
     @classmethod
     def load(cls, path: str | Path) -> "BotWeights":

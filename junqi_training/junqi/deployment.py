@@ -155,7 +155,11 @@ def _build_strategic(
     ]
     rng.shuffle(screen)
     rng.shuffle(rear_free)
-    guards = screen[: rng.randint(1, 2)]
+    # A headquarters has exactly three orthogonal neighbours and all of them sit
+    # in the rear rows, so all three mines can screen the flag -- after which
+    # only an engineer can reach it. That is precisely the layout a human used
+    # to make the bot's own raids hopeless.
+    guards = screen[: 3 if rng.random() < 0.75 else 2]
     mine_slots = guards + [
         position for position in rear_free if position not in guards
     ]

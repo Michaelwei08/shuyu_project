@@ -270,7 +270,31 @@ class SearchBot:
                 if len(defending) == 1
                 else weights.eval_hq_defense
             )
+            if threat <= 1:
+                # An enemy standing next to a headquarters that may hold our
+                # flag takes it next ply unless we remove it. The linear term
+                # above barely distinguishes that from a distant piece.
+                value -= weights.eval_hq_breach
+        value += weights.eval_hq_guard * self._guards(game, owner, defending)
         return value
+
+    @staticmethod
+    def _guards(game: Game, owner: Owner, squares: list[Position]) -> int:
+        """Own movable pieces standing next to a headquarters we must hold.
+
+        Without this, stepping off the square that shields the flag cost only
+        the `protect_flag` distance term -- 0.4 against a ~24 point capture.
+        """
+        if not squares:
+            return 0
+        return sum(
+            1
+            for position, piece in game.board.items()
+            if piece.owner == owner
+            and piece.kind.movable
+            and position not in HEADQUARTERS
+            and any(_distance(position, square) == 1 for square in squares)
+        )
 
     @staticmethod
     def _closest_raider(
