@@ -14,7 +14,7 @@ import argparse
 import time
 from pathlib import Path
 
-from .arena import PoolReport, evaluate, seeds_for
+from .arena import PoolReport, compare, evaluate, seeds_for
 from .bot import BotWeights
 from .opponents import discover_history, standard_pool
 
@@ -39,6 +39,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="不要把历史模型加入对手池",
     )
+    parser.add_argument(
+        "--baseline",
+        type=Path,
+        default=None,
+        help=(
+            "与另一个模型做配对比较（相同开局、相同暗子采样）。"
+            "训练期间对手池会随接受的模型一起变强，因此代际分数看不出净进步；"
+            "要判断净进步，请对固定对手池用 --baseline 加 --no-history"
+        ),
+    )
     return parser
 
 
@@ -54,10 +64,30 @@ def main() -> None:
     print(f"pool: {len(pool)} opponents -> {[s.name for s in pool.specs]}")
 
     per_block = max(1, arguments.games // max(1, arguments.seeds))
-    all_results = []
+    blocks = [
+        seeds_for(per_block, pool, offset=100_000 * (block + 1))
+        for block in range(arguments.seeds)
+    ]
     started = time.perf_counter()
-    for block in range(arguments.seeds):
-        seeds = seeds_for(per_block, pool, offset=100_000 * (block + 1))
+
+    if arguments.baseline is not None:
+        baseline = BotWeights.load(arguments.baseline)
+        every_seed = [seed for block in blocks for seed in block]
+        verdict = compare(weights, baseline, pool, every_seed, arguments.workers)
+        print(f"\n=== {arguments.model.name} vs {arguments.baseline.name} ===")
+        print("candidate:")
+        print(verdict.candidate.format())
+        print("\nbaseline:")
+        print(verdict.incumbent.format())
+        print()
+        print(verdict.format())
+        elapsed = time.perf_counter() - started
+        played = verdict.candidate.games * 2
+        print(f"\n{played} games in {elapsed:.0f}s")
+        return
+
+    all_results = []
+    for block, seeds in enumerate(blocks):
         report = evaluate(weights, pool, seeds, arguments.workers)
         all_results.extend(report.results)
         print(
