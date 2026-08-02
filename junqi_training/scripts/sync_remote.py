@@ -132,25 +132,37 @@ opponents they were trained as.
 tuning it by hand -- 96 parameters, stdlib SGD, weighted by `eval_value_scale`
 which ships at 0 so it is inert until measured.
 
-It is NOT ready to adopt, and the reason is worth reading before touching it.
-In-pool it scored +0.1158 (p = 0.001). Against four opponents held out of its
-training, everything else identical, it scored -0.0013 (p = 0.52). Same
-opponents, same seeds; only whether the model had trained on them:
+It is NOT adopted. The story so far, because each step overturned the last:
 
-    trained on them   scale 15 +0.0563 p=0.03    scale 35 +0.1326 p<0.0001
-    never saw them    scale 15 -0.0013 p=0.52    scale 35 +0.0105 p=0.37
+    500 games trained,  check n=400   -0.0013 +/- 0.0318   nothing
+    2000 games trained, check n=400   +0.0631 +/- 0.0303   p=0.019, looked good
+    2000 games trained, check n=1600  +0.0210 +/- 0.0153   p=0.084, NOT significant
 
-So the pool cannot be both the training signal and the yardstick for a model
-with this much capacity. Any further work on it goes:
+The n=400 screen did not survive a 4x sample, the same way blind pricing went
+from +0.19 to +0.0066. Treat any n=400 result here as a hint, never a verdict.
 
-    $PY -m junqi.value_training --games 2000 --workers $W \\
-        --exclude search-deep search-mid selective selective-strict
-    $PY scripts/generalisation_check.py --workers $W
+What IS established: data moves this and capacity does not. The same 96
+parameters at 2000 games instead of 500 lifted held-out AUC 0.707 -> 0.761. A
+capacity ladder on held-out games gains +0.038 AUC going 6 -> 30 features and
+NOTHING going 30 -> 96 (0.776 -> 0.771), with train AUC below test AUC at every
+rung -- i.e. underfitting, so a bigger model is the wrong lever.
 
-More training games are the obvious next lever -- 500 games is 66k positions for
-96 parameters, and the held-out AUC did improve (0.690 -> 0.707), so the model
-may simply be undertrained rather than useless. Only if the generalisation check
-turns positive is a full acceptance run worth the compute.
++0.021 at SE 0.0153 is still the largest surviving candidate effect in the
+project. Detecting it needs SE < 0.0128, about 2400 check games. The scaling
+sweep runs the whole curve at that power, trains and checks at each size, and
+goes largest-first so a killed run still leaves the best model on disk:
+
+    $PY scripts/value_scaling.py --sizes 1600 3200 6400 --workers $W
+
+Roughly: collection is ~4 core-seconds a game, so 11200 games of training data
+is ~12 minutes on 46 cores, plus three 2400-game checks at ~11 games/second.
+Budget an hour. `--stride 4` keeps one position in four; consecutive plies share
+a label and are nearly identical, and taking all of them at 6400 games costs
+several GB.
+
+If the curve is still climbing at 6400, more self-play is the cheapest lever
+left. If it is flat, this feature set is finished and the open question becomes
+the opponent pool rather than the model.
 
 Only after that verdict should training resume from the new baseline:
 

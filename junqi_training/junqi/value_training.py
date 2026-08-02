@@ -45,14 +45,14 @@ DEFAULT_ANCHOR = Path("models/defaults.json")
 Row = tuple[list[float], float, int, float]
 
 
-def _collect(task: tuple[int, str, str | None, frozenset[str]]) -> list[Row]:
+def _collect(task: tuple[int, str, str | None, frozenset[str], int]) -> list[Row]:
     """Play one game and return `(features, label, phase)` for every ply.
 
     Labels are from the *bot* side's point of view; both sides are recorded, the
     human side with its own perspective and its own outcome, so one game yields
     two views and the model never learns "north wins".
     """
-    seed, model_path, anchor, excluded = task
+    seed, model_path, anchor, excluded, stride = task
     weights = BotWeights.load(model_path)
     specs = [
         spec for spec in standard_pool(anchor=anchor).specs
@@ -75,7 +75,11 @@ def _collect(task: tuple[int, str, str | None, frozenset[str]]) -> list[Row]:
     sampler = SearchBot(weights, seed=seed * 3 + 7, samples=1, beam_width=1)
     rng = random.Random(seed * 7919 + 13)
     while not game.over and game.move_count < MAX_MOVES:
-        for side in Owner:
+        # Subsample plies. Consecutive positions in one game are nearly
+        # identical and share a label, so most of them are redundant; this
+        # is what keeps a 6400-game collection inside memory, and it weakens
+        # the within-game correlation into the bargain.
+        for side in Owner if game.move_count % stride == 0 else ():
             # Exactly what the search sees: the opponent's hidden ranks resampled.
             world = sampler._determinize(game, side.other, rng)
             rows.append(
@@ -105,10 +109,12 @@ def collect(
     anchor: Path | None,
     workers: int | None,
     excluded: frozenset[str] = frozenset(),
+    stride: int = 1,
+    offset: int = 900_001,
 ) -> list[list[Row]]:
     tasks = [
-        (seed, str(model), str(anchor) if anchor else None, excluded)
-        for seed in range(900_001, 900_001 + games)
+        (seed, str(model), str(anchor) if anchor else None, excluded, stride)
+        for seed in range(offset, offset + games)
     ]
     count = default_workers() if workers is None else workers
     if count <= 1:
@@ -142,6 +148,12 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=None)
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument(
+        "--stride",
+        type=int,
+        default=1,
+        help="每隔几手取一个训练样本。相邻局面几乎一样且共享标签，大规模收集时用 4 或 8 可以大幅降内存，信息损失很小",
+    )
+    parser.add_argument(
         "--holdout", type=float, default=0.3, help="按对局（不是按局面）留出的比例"
     )
     parser.add_argument(
@@ -166,7 +178,12 @@ def main() -> None:
     if excluded:
         print(f"holding out opponents: {sorted(excluded)}")
     games = collect(
-        arguments.games, arguments.model, anchor, arguments.workers, excluded
+        arguments.games,
+        arguments.model,
+        anchor,
+        arguments.workers,
+        excluded,
+        arguments.stride,
     )
     games = [rows for rows in games if rows]
     positions = sum(len(rows) for rows in games)

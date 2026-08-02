@@ -239,6 +239,16 @@ def load_default(path: str | Path = DEFAULT_PATH) -> ValueModel | None:
     return _CACHE[key]
 
 
+def reset_cache() -> None:
+    """Forget the loaded model.
+
+    Only matters in a process that refits and re-reads within one run -- a
+    scaling sweep, say. Evaluation workers are fresh processes and load once,
+    which is the whole point of the cache.
+    """
+    _CACHE.clear()
+
+
 def fit(
     rows: list[tuple[list[float], float]],
     epochs: int = 40,
