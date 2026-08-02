@@ -85,46 +85,28 @@ Blind pricing at `blind_battle = 9.0` then failed too, at 2418 paired games:
 shrank as the sample grew (+0.19 at 78 games, +0.017 and +0.022 at 806, +0.0066
 at 2418), which is noise regressing to zero.
 
-## The one thing still open
+## Blind pricing: closed, dead
 
-That run split cleanly by opponent class rather than randomly:
+Five measurements, converging on zero:
 
-    helped  defensive +4.5  hqrush +3.2  heuristic +3.0  engineer +2.7
-            material +2.7   hqrush-careful +2.2  heuristic-quiet +1.6
-            selective +0.9  random +0.5
-    hurt    search-mid -5.4  search-deep -4.6  search-shallow -3.0
-            selective-strict -1.6
+    n=78,    corrupt anchor           +0.19            pure noise in hindsight
+    n=806 x2,corrupt anchor           +0.0173, +0.0218
+    n=2418,  corrupt anchor           +0.0066 +/- 0.0133, p=0.31
+    n=806 x3,repaired, scales 2/4/6   -0.0132, -0.0074, +0.0077, all p>0.35
+    n=2418,  repaired anchor          -0.0014 +/- 0.0118, p=0.55
 
-All eight greedy opponents positive, all three search opponents negative. The
-likely cause is that the fix changed two things at once: the rank *ordering*
-(which really was inverted) and the *magnitude*. The branch spans 14.6 points
-across the rank order at 9.0 where the old term spanned 0.73, so it drowns out
-the rollout the search is supposed to be steering by.
+Repairing the anchor did NOT revive it -- notable, because the same repair
+doubled the value-function result. The instrument was hiding the leaf
+evaluation; it was not hiding this.
 
-`models/ab/blind-{2,4,6}.json` keep the ordering and turn the volume down
-(spans 3.2 / 6.5 / 9.7). Screen all three -- about 130s each:
+It still ships at blind_battle = 9.0 on the same grounds use_move_distance
+ships at 1 despite measuring +0.0021: the old term is not weaker, it is
+BACKWARDS -- it scored the commander lowest and the engineer highest for the
+identical blind attack, against observed outcomes of 3W/1T/0L and 1W/2T/5L.
+Equal against this pool; only one is correct. That is a judgement, not a result.
 
-    for s in 2 4 6; do
-      $PY -m junqi.benchmark --games 800 --no-history --workers $W \\
-          --model models/ab/blind-$s.json \\
-          --baseline models/ab/pre-2026-08-01.json
-    done
-
-These are screens and picking the best of three inflates the false-positive
-rate, so a winner has to be confirmed on a larger sample before it means
-anything:
-
-    $PY -m junqi.benchmark --games 2400 --seeds 3 --no-history --workers $W \\
-        --model models/ab/blind-<best>.json \\
-        --baseline models/ab/pre-2026-08-01.json
-
-If none of them clears `p < 0.05` at 2400 games, the whole line is dead: set
-`blind_battle` to 0, restore `unknown_risk`, and the answer is that the pool
-cannot distinguish these pricings at all.
-
-`--no-history` matters. The archived models in `models/history/` predate
-`blind_battle`, so they would load with the new default and are not the
-opponents they were trained as.
+Do not spend more games on it. models/ab/blind-{2,4,6}.json are kept only so the
+negative can be reproduced.
 
 ## Two instrument repairs -- read before quoting any old number
 
