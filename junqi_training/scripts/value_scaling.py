@@ -78,6 +78,12 @@ def main() -> None:
 
     shipped = BotWeights.load(arguments.model)
     candidate = replace(shipped, eval_value_scale=arguments.scale)
+    # Zero the scale to build the baseline rather than using the model as it
+    # sits on disk: once the term was adopted, `shipped` already carried the
+    # scale under test and every size reported a perfect +0.0000 no-op.
+    baseline = replace(shipped, eval_value_scale=0.0)
+    if arguments.scale == 0.0:
+        raise SystemExit("--scale 0 is the baseline; nothing to compare")
     check_seeds = seeds_for(arguments.check_games, check_pool, offset=555_000)
 
     print(f"held out of training AND used for the check: {sorted(held_out)}")
@@ -114,7 +120,7 @@ def main() -> None:
             [model.predict_features(v) for v, _, _, _ in test],
             [y for _, y, _, _ in test],
         )
-        baseline = auc(
+        shipped_auc = auc(
             [s for _, _, _, s in test], [y for _, y, _, _ in test]
         )
         # Keep every size, not just the last one written. Running largest-first
@@ -127,12 +133,17 @@ def main() -> None:
         model.save(per_size)
         model.save(arguments.output)
         reset_cache()  # this process must re-read the model it just wrote
-        print(f"  held-out AUC: shipped {baseline:.3f} -> learned {learned:.3f}",
+        print(f"  held-out AUC: shipped {shipped_auc:.3f} -> learned {learned:.3f}",
               flush=True)
 
         verdict = compare(
-            candidate, shipped, check_pool, check_seeds, arguments.workers
+            candidate, baseline, check_pool, check_seeds, arguments.workers
         )
+        if verdict.standard_error == 0.0:
+            raise SystemExit(
+                "zero-variance paired difference: candidate and baseline are "
+                "the same player, so this measures nothing"
+            )
         print(
             f"  vs held-out opponents: {verdict.mean_difference:+.4f} "
             f"+/- {verdict.standard_error:.4f}, p = {verdict.p_value:.4f}, "
@@ -144,7 +155,7 @@ def main() -> None:
             (
                 size,
                 len(rows),
-                baseline,
+                shipped_auc,
                 learned,
                 verdict.mean_difference,
                 verdict.standard_error,

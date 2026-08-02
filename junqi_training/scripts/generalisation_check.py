@@ -62,16 +62,31 @@ def main() -> None:
     print(f"held-out opponents: {[spec.name for spec in pool.specs]}")
     print("the value model must NOT have trained against these\n")
     shipped = BotWeights.load(arguments.model)
+    # Derive the baseline by zeroing the scale rather than using the model as
+    # it sits on disk. Once the value term was adopted into bot_weights.json,
+    # `shipped` already carried scale 15, so comparing against it pitted the
+    # model against itself and printed "+0.0000 +/- 0.0000, p = 1.0000" -- which
+    # reads exactly like a clean negative result and is not one.
+    baseline = replace(shipped, eval_value_scale=0.0)
     seeds = seeds_for(arguments.games, pool, offset=arguments.offset)
 
     for scale in arguments.scales:
+        if scale == 0.0:
+            print(f"  eval_value_scale {scale:>6.1f}: skipped -- identical to "
+                  f"the baseline, nothing to compare")
+            continue
         verdict = compare(
             replace(shipped, eval_value_scale=scale),
-            shipped,
+            baseline,
             pool,
             seeds,
             arguments.workers,
         )
+        if verdict.standard_error == 0.0:
+            raise SystemExit(
+                "paired difference has zero variance: the two sides are the "
+                "same player. Check that --model and the scale actually differ."
+            )
         flag = "PASS" if verdict.significant else "no effect"
         print(
             f"  eval_value_scale {scale:>6.1f}: {verdict.mean_difference:+.4f} "
