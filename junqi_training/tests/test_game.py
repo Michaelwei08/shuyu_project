@@ -13,6 +13,7 @@ from junqi.opponents import AgentSpec, Pool, SelectiveBot, standard_pool
 from junqi.web_export import parse as parse_web_weights
 from junqi.deployment import (
     SCREEN_MINE_CAP,
+    rear_rows,
     front_row,
     headquarters,
     load_deployment,
@@ -26,6 +27,13 @@ from junqi.game import Game, ObservedMove, battle_outcome
 from junqi.knowledge import OpponentKnowledge
 from junqi.search_bot import SearchBot
 from junqi.types import Move, Owner, PIECE_COUNTS, Piece, PieceKind
+from junqi.value import (
+    BASE_WIDTH,
+    WIDTH,
+    ValueModel,
+    features as value_features,
+    load_default as load_value_model,
+)
 
 
 class GameTests(unittest.TestCase):
@@ -456,6 +464,85 @@ class GameTests(unittest.TestCase):
         )
         self.assertEqual(alive[PieceKind.MINE], 2)
 
+    def test_live_mines_cannot_outnumber_the_rear_squares_holding_them(self) -> None:
+        """A mine never moves, so it must be standing on one of its own rear
+        squares. Only an engineer win proves a mine dead, and a bomb trades with
+        every rank so a bomb kill is unprovable -- which left the estimate
+        carrying all three mines forever. Occupancy bounds it without reading a
+        single hidden rank.
+        """
+        bot = SearchBot(BotWeights(), seed=9)
+        for slots in range(4):
+            alive = Counter(
+                bot._sample_survivors(
+                    8, Counter(), random.Random(slots), rear_slots=slots
+                )
+            )
+            self.assertLessEqual(alive[PieceKind.MINE], slots, f"slots={slots}")
+        # Unbounded is still the old behaviour, so the estimate stays generous
+        # whenever the caller has nothing to say about occupancy.
+        loose = Counter(bot._sample_survivors(8, Counter(), random.Random(0)))
+        self.assertEqual(loose[PieceKind.MINE], 3)
+
+    def test_determinize_never_puts_a_mine_outside_the_rear_rows(self) -> None:
+        """The failure the occupancy cap exists to prevent.
+
+        With more believed-live mines than legal rear squares,
+        `_assign_constrained` cannot place them, exhausts its attempts and falls
+        through to an unconstrained shuffle -- which used to scatter mines
+        across midfield, where the rules say they can never be.
+        """
+        board = {
+            (0, 1): Piece(Owner.BOT, PieceKind.FLAG),
+            (11, 1): Piece(Owner.HUMAN, PieceKind.FLAG),
+        }
+        # One rear square left, but plenty of midfield pieces to place.
+        board[(10, 0)] = Piece(Owner.HUMAN, PieceKind.MINE)
+        for column, row in enumerate([7, 7, 7, 7]):
+            board[(row, column)] = Piece(Owner.HUMAN, PieceKind.CAPTAIN)
+        for column in range(4):
+            board[(5, column)] = Piece(Owner.BOT, PieceKind.CAPTAIN)
+        game = Game(board=board)
+
+        bot = SearchBot(BotWeights(), seed=3)
+        rear = rear_rows(Owner.HUMAN)
+        for seed in range(25):
+            world = bot._determinize(game, Owner.HUMAN, random.Random(seed))
+            stray = [
+                position
+                for position, piece in world.board.items()
+                if piece.owner == Owner.HUMAN
+                and piece.kind == PieceKind.MINE
+                and position[0] not in rear
+            ]
+            self.assertEqual(stray, [], f"seed {seed}: mine outside the rear rows")
+
+    def test_the_modelled_opponent_can_be_given_beliefs_about_our_army(self) -> None:
+        """`_rollout` built its reply bot and never assigned `.knowledge`, so
+        every sampled world assumed an opponent with no deductions while the bot
+        itself ran a full `OpponentKnowledge`. `reply_insight` ships at 0, which
+        reproduces that exactly; the mechanism has to work so it can be measured.
+        """
+        game = Game(board=make_opening(5), turn=Owner.BOT)
+        blind = SearchBot(BotWeights(), seed=5)
+        self.assertIsNone(blind._reply_belief(game, Owner.BOT, 77))
+
+        seeing = SearchBot(replace(BotWeights(), reply_insight=1.0), seed=5)
+        belief = seeing._reply_belief(game, Owner.BOT, 77)
+        assert belief is not None
+        own = {
+            position
+            for position, piece in game.board.items()
+            if piece.owner == Owner.BOT
+        }
+        self.assertEqual(set(belief), own)
+        # It may only ever look at our own pieces -- never a hidden enemy rank.
+        for position, kinds in belief.items():
+            self.assertEqual(kinds, frozenset({game.board[position].kind}))
+        self.assertEqual(
+            seeing._reply_belief(game, Owner.BOT, 77), belief, "must be seed-stable"
+        )
+
     def test_an_engineer_win_proves_a_mine_died(self) -> None:
         knowledge = OpponentKnowledge(Owner.BOT)
         win = ObservedMove(
@@ -526,14 +613,14 @@ class GameTests(unittest.TestCase):
         self.assertAlmostEqual(PRIOR_BATTLE[PieceKind.BOMB], 0.0)
 
     def test_defender_supply_is_charged_before_the_breach_lands(self) -> None:
-        """Nine of nine replayed losses ended with the bot holding no legal
-        move onto the square in front of its own flag. `eval_hq_breach` cannot
-        help there: with no answer available it is identical across every
-        candidate and cancels out. This term prices the *supply* of answers
-        while the raider is still two moves away, which is the last moment the
-        position can still be fixed."""
+        """The supply term measured dead (+0.0008 +/- 0.0097 over 806 games) and
+        now ships at 0, but the mechanism has to keep working or the ablation
+        that retired it could not be re-run. So this switches it on explicitly
+        rather than relying on the default.
+        """
         weights = replace(
             BotWeights(),
+            eval_hq_supply=8.0,
             # Leave only material and the supply term standing, so the two
             # boards below differ by exactly one thing.
             eval_hq_guard=0.0,
@@ -657,6 +744,59 @@ class GameTests(unittest.TestCase):
         self.assertTrue(bold._acceptable(strong, attack, Owner.HUMAN, []))
         agent._update_knowledge(game, Owner.HUMAN)
         self.assertFalse(agent._acceptable(game, attack, Owner.HUMAN, []))
+
+    def test_the_learned_value_term_is_inert_until_it_is_switched_on(self) -> None:
+        """`eval_value_scale` ships at 0, so a fitted `models/value.json` sitting
+        on disk must not change a single evaluation until a paired run says it
+        should. That is what lets the whole learned evaluation be A/B'd as a
+        weight instead of as a code switch."""
+        game = Game(board=make_opening(3), turn=Owner.BOT)
+        plain = SearchBot(BotWeights(), seed=1)
+        self.assertEqual(BotWeights().eval_value_scale, 0.0)
+
+        model = ValueModel(weights=[0.25] * WIDTH)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "value.json"
+            model.save(path)
+            loaded = ValueModel.load(path)
+        self.assertEqual(loaded.weights, model.weights)
+
+        off = plain._state_value(game, Owner.BOT)
+        loud = SearchBot(
+            replace(BotWeights(), eval_value_scale=50.0), seed=1
+        )._state_value(game, Owner.BOT)
+        if load_value_model() is None:
+            self.skipTest("no models/value.json in this checkout")
+        self.assertNotEqual(off, loud, "the term is wired but does nothing")
+
+    def test_value_features_are_bounded_and_phase_separated(self) -> None:
+        """Only the active phase's block is populated, which is what lets one
+        linear model hold different opinions early and late -- composition
+        measured worse than useless in the opening and dominant after ply 45."""
+        game = Game(board=make_opening(8), turn=Owner.BOT)
+        self.assertEqual(WIDTH, BASE_WIDTH * 3)
+
+        seen = set()
+        for move_count, expected in ((0, 0), (30, 1), (90, 2)):
+            game.move_count = move_count
+            vector = value_features(game, Owner.BOT)
+            self.assertEqual(len(vector), WIDTH)
+            active = {index // BASE_WIDTH for index, x in enumerate(vector) if x}
+            self.assertEqual(active, {expected}, f"ply {move_count}")
+            seen |= active
+            # Everything is a ratio or a one-hot; an unbounded feature would let
+            # one term swamp the dot product on an unusual board.
+            self.assertTrue(all(-2.0 <= x <= 2.0 for x in vector))
+        self.assertEqual(seen, {0, 1, 2})
+
+    def test_value_model_rejects_a_stale_width(self) -> None:
+        """Adding a feature invalidates every fitted model. Loading one anyway
+        would silently misalign every coefficient, so it has to be an error."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "value.json"
+            ValueModel(weights=[0.0] * (WIDTH - 1)).save(path)
+            with self.assertRaises(ValueError):
+                ValueModel.load(path)
 
     def test_only_a_c_e_files_cross_the_river(self) -> None:
         game = Game(

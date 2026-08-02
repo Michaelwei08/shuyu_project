@@ -37,6 +37,15 @@ from .types import Owner, Piece, PieceKind, Position
 MAX_MOVES = 300
 HORIZON = 12.0
 
+#: `(samples, beam_width, reply_width)` the subject searches at. Every weight in
+#: `models/` was tuned at this setting, and the browser's `deep` tier plays at
+#: (28, 18, 5) *plus* a continuation ply the Python engine does not implement --
+#: roughly twenty times the rollouts. A coefficient that is optimal for a
+#: shallow search need not be optimal for a deep one, so this is exposed as a
+#: knob rather than left hardcoded: `--search-samples` and friends let a paired
+#: comparison ask whether a result survives at the depth actually deployed.
+DEFAULT_SEARCH = (3, 8, 4)
+
 # Shaping stays small next to the result so that wins always dominate; it exists
 # to cut the variance of a fixed-size sample, not to change what "better" means.
 SHAPE_FLAG_CAPTURE = 0.10
@@ -90,6 +99,10 @@ class Job:
     #: incumbent still face byte-identical opposing armies on the same seed and
     #: the comparison stays paired.
     subject_screen_cap: int | None = None
+    #: The subject's `(samples, beam_width, reply_width)`. `None` means
+    #: `DEFAULT_SEARCH`, which is what every measurement before 2026-08-01 used.
+    #: A plain tuple so `Job` stays picklable and hashable.
+    subject_search: tuple[int, int, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -155,12 +168,13 @@ def play_match(job: Job) -> MatchResult:
     )
     from .search_bot import SearchBot
 
+    samples, beam_width, reply_width = job.subject_search or DEFAULT_SEARCH
     subject = SearchBot(
         job.weights,
         seed=job.seed * 2 + int(subject_side),
-        samples=3,
-        beam_width=8,
-        reply_width=4,
+        samples=samples,
+        beam_width=beam_width,
+        reply_width=reply_width,
     )
     challenger = job.opponent.build(
         opponent_weights, seed=job.seed * 2 + int(subject_side.other)
@@ -218,10 +232,11 @@ def build_jobs(
     pool: Pool,
     seeds: list[int],
     subject_screen_cap: int | None = None,
+    subject_search: tuple[int, int, int] | None = None,
 ) -> list[Job]:
     """Every seed against every opponent, both colours -- the paired design."""
     return [
-        Job(weights, spec, seed, side, subject_screen_cap)
+        Job(weights, spec, seed, side, subject_screen_cap, subject_search)
         for seed in seeds
         for spec in pool.specs
         for side in (int(Owner.HUMAN), int(Owner.BOT))
@@ -386,8 +401,11 @@ def evaluate(
     seeds: list[int],
     workers: int | None = None,
     subject_screen_cap: int | None = None,
+    subject_search: tuple[int, int, int] | None = None,
 ) -> PoolReport:
-    played = run_jobs(build_jobs(weights, pool, seeds, subject_screen_cap), workers)
+    played = run_jobs(
+        build_jobs(weights, pool, seeds, subject_screen_cap, subject_search), workers
+    )
     return PoolReport([result for result in played if result is not None])
 
 
@@ -432,15 +450,24 @@ def compare(
     workers: int | None = None,
     candidate_screen_cap: int | None = None,
     incumbent_screen_cap: int | None = None,
+    search: tuple[int, int, int] | None = None,
 ) -> Comparison:
     """Run both weight sets over an identical job list and pair the outcomes.
 
     The two ``screen_cap`` arguments are the one way a *non-weight* change can
     enter this comparison: they alter only the subject's own deployment, so the
     opposing army on a given seed is unchanged and the pairing survives.
+
+    ``search`` applies to *both* sides, because the question it answers is
+    "does this weight difference still hold at the depth we actually deploy",
+    not "is deeper better" -- the latter is not a paired question at all.
     """
-    candidate_jobs = build_jobs(candidate, pool, seeds, candidate_screen_cap)
-    incumbent_jobs = build_jobs(incumbent, pool, seeds, incumbent_screen_cap)
+    candidate_jobs = build_jobs(
+        candidate, pool, seeds, candidate_screen_cap, search
+    )
+    incumbent_jobs = build_jobs(
+        incumbent, pool, seeds, incumbent_screen_cap, search
+    )
     combined = run_jobs(candidate_jobs + incumbent_jobs, workers)
     split = len(candidate_jobs)
     # Drop a pair entirely if either half failed -- a half-pair would break the

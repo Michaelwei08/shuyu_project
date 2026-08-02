@@ -51,6 +51,11 @@ FLOORS = {
     # negative coefficient would mean "prefer the attacks you expect to lose".
     "blind_battle": 0.0,
     "eval_hq_supply": 0.0,
+    # A negative scale would mean "prefer the positions the fitted model
+    # says you lose from"; likewise a negative reply insight is meaningless.
+    "eval_value_scale": 0.0,
+    "reply_insight": 0.0,
+    "search_base_weight": 0.0,
     "eval_material": 0.1,
     "eval_mobility": 0.0,
     "eval_hq_attack": 0.0,

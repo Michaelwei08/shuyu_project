@@ -1,7 +1,40 @@
+"""Ship the training subset to a git repo that the compute box pulls from.
+
+`military/` is not a git repo, and `web/` inside it is a separate one with its
+own remote, so the whole folder is awkward to move (and 691 MB of it is
+`node_modules`). Training needs about a quarter of a megabyte.
+
+    python scripts/sync_remote.py push          # military -> transport repo
+    python scripts/sync_remote.py pull          # trained models -> military
+
+`military/` stays the single source of truth for code: `push` overwrites the
+copy in the transport repo, never the other way round. Only `models/` travels
+back, because that is the only thing the remote produces.
+"""
+
+from __future__ import annotations
+
+import argparse
+import filecmp
+import shutil
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_REPO = Path(r"D:\Stanford\research\Ash")
+FOLDER = "junqi_training"
+
+# `scripts/` travels too: `generalisation_check.py` is now a required step
+# before adopting anything fitted, so the compute box needs it.
+CODE = ["junqi", "tests", "scripts"]
+FILES = ["pyproject.toml"]
+MODELS = "models"
+SKIP = {"__pycache__", ".pytest_cache"}
+
+README = """\
 # junqi_training (not part of the Ash science)
 
 This folder is a **generated copy** of the training subset of
-`D:\Stanford\research\own\fun\military`, parked here only because this repo is
+`D:\\Stanford\\research\\own\\fun\\military`, parked here only because this repo is
 the pipe to the CPU box. It has nothing to do with viral sequencing -- do not
 read it as part of this project, and do not edit it here.
 
@@ -72,8 +105,8 @@ the rollout the search is supposed to be steering by.
 (spans 3.2 / 6.5 / 9.7). Screen all three -- about 130s each:
 
     for s in 2 4 6; do
-      $PY -m junqi.benchmark --games 800 --no-history --workers $W \
-          --model models/ab/blind-$s.json \
+      $PY -m junqi.benchmark --games 800 --no-history --workers $W \\
+          --model models/ab/blind-$s.json \\
           --baseline models/ab/pre-2026-08-01.json
     done
 
@@ -81,8 +114,8 @@ These are screens and picking the best of three inflates the false-positive
 rate, so a winner has to be confirmed on a larger sample before it means
 anything:
 
-    $PY -m junqi.benchmark --games 2400 --seeds 3 --no-history --workers $W \
-        --model models/ab/blind-<best>.json \
+    $PY -m junqi.benchmark --games 2400 --seeds 3 --no-history --workers $W \\
+        --model models/ab/blind-<best>.json \\
         --baseline models/ab/pre-2026-08-01.json
 
 If none of them clears `p < 0.05` at 2400 games, the whole line is dead: set
@@ -110,7 +143,7 @@ opponents, same seeds; only whether the model had trained on them:
 So the pool cannot be both the training signal and the yardstick for a model
 with this much capacity. Any further work on it goes:
 
-    $PY -m junqi.value_training --games 2000 --workers $W \
+    $PY -m junqi.value_training --games 2000 --workers $W \\
         --exclude search-deep search-mid selective selective-strict
     $PY scripts/generalisation_check.py --workers $W
 
@@ -121,7 +154,7 @@ turns positive is a full acceptance run worth the compute.
 
 Only after that verdict should training resume from the new baseline:
 
-    $PY -m junqi.training --generations 8 --screen-games 200 \
+    $PY -m junqi.training --generations 8 --screen-games 200 \\
         --accept-games 600 --workers $W
 
 Only `models/` is meant to travel back. After the run, from `military/`:
@@ -133,3 +166,90 @@ Numbers from before 2026-08-01 are not comparable to numbers after it: the
 scoring function changed, both sides of every pool game changed with it, and
 `make_opening` now draws each side from its own RNG stream, so every opening
 differs. Re-baseline rather than comparing against an old printout.
+"""
+
+
+def _copy_tree(source: Path, destination: Path) -> int:
+    copied = 0
+    if destination.exists():
+        shutil.rmtree(destination)
+    for item in source.rglob("*"):
+        if any(part in SKIP for part in item.parts):
+            continue
+        target = destination / item.relative_to(source)
+        if item.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(item, target)
+            copied += 1
+    return copied
+
+
+def push(repo: Path, with_models: bool = False) -> None:
+    destination = repo / FOLDER
+    destination.mkdir(parents=True, exist_ok=True)
+    total = 0
+    for name in CODE:
+        total += _copy_tree(ROOT / name, destination / name)
+    for name in FILES:
+        shutil.copy2(ROOT / name, destination / name)
+        total += 1
+
+    existing = destination / MODELS
+    if with_models or not existing.exists():
+        # `_copy_tree` deletes the destination first, so doing this on every
+        # code sync would silently destroy weights the compute box trained but
+        # has not pushed back yet. Models travel remote -> local by default.
+        total += _copy_tree(ROOT / MODELS, existing)
+        print("models: overwritten from local")
+    else:
+        print("models: left alone (pass --with-models to overwrite)")
+
+    (destination / "README.md").write_text(README, encoding="utf-8", newline="\n")
+    print(f"pushed {total + 1} files -> {destination}")
+    print(f"  cd {repo} && git add {FOLDER} && git commit -m 'Sync junqi training subset'")
+
+
+def pull(repo: Path) -> None:
+    source = repo / FOLDER / MODELS
+    if not source.exists():
+        raise SystemExit(f"no models in transport repo: {source}")
+    destination = ROOT / MODELS
+    changed: list[str] = []
+    for item in sorted(source.rglob("*.json")):
+        target = destination / item.relative_to(source)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists() and filecmp.cmp(item, target, shallow=False):
+            continue
+        shutil.copy2(item, target)
+        changed.append(str(target.relative_to(ROOT)))
+    if not changed:
+        print("models already up to date")
+        return
+    print("updated:")
+    for name in changed:
+        print(f"  {name}")
+    print("\nnow run: python -m junqi.web_export   (otherwise the web bot is stale)")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=("push", "pull"))
+    parser.add_argument("--repo", type=Path, default=DEFAULT_REPO)
+    parser.add_argument(
+        "--with-models",
+        action="store_true",
+        help="也用本地 models/ 覆盖传输仓库（会丢弃远程尚未回传的训练结果）",
+    )
+    arguments = parser.parse_args()
+    if not (arguments.repo / ".git").exists():
+        raise SystemExit(f"not a git repo: {arguments.repo}")
+    if arguments.action == "push":
+        push(arguments.repo, arguments.with_models)
+    else:
+        pull(arguments.repo)
+
+
+if __name__ == "__main__":
+    main()

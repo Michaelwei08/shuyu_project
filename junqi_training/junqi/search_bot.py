@@ -9,6 +9,7 @@ from .deployment import headquarters, rear_rows
 from .game import Game
 from .knowledge import OpponentKnowledge
 from .types import PIECE_COUNTS, Move, Owner, Piece, PieceKind, Position
+from .value import load_default as load_value_model
 
 # Nothing on this board is more than five moves from anything else, so the old
 # `12 - distance` horizon left the term almost flat.
@@ -69,7 +70,9 @@ class SearchBot:
             rollout = sum(
                 self._rollout(game, move, player, seed) for seed in sample_seeds
             ) / len(sample_seeds)
-            scored.append((base_score + rollout, move))
+            scored.append(
+                (base_score * self.weights.search_base_weight + rollout, move)
+            )
         best = max(score for score, _ in scored)
         return self.rng.choice(
             [move for score, move in scored if score >= best - 1e-9]
@@ -113,6 +116,7 @@ class SearchBot:
         # Take the worst case over the opponent's most plausible answers rather
         # than trusting a single greedy reply.
         reply_bot = HeuristicBot(self.weights, seed=sample_seed ^ 0xA5A5A5A5)
+        reply_bot.knowledge = self._reply_belief(sampled, owner, sample_seed)
         ranked = sorted(
             (
                 (reply_bot._score(sampled, reply, opponent, quick=True), reply)
@@ -130,6 +134,30 @@ class SearchBot:
             if worst is None or value < worst:
                 worst = value
         return worst if worst is not None else self._state_value(sampled, owner)
+
+    def _reply_belief(
+        self, sampled: Game, owner: Owner, sample_seed: int
+    ) -> dict[Position, frozenset[PieceKind]] | None:
+        """What the modelled opponent is assumed to know about *our* army.
+
+        Reads only ``owner``'s own pieces -- our ranks, which we obviously may
+        look at -- so this adds no information channel from the hidden side.
+        `reply_insight` is the share of our pieces the replier sees; at 0 this
+        returns ``None`` and the reply ranking is byte-identical to before.
+
+        Drawn from ``sample_seed`` rather than a running RNG so that two
+        candidate weight sets still meet identical worlds and the paired
+        comparison stays exact.
+        """
+        insight = self.weights.reply_insight
+        if insight <= 0.0:
+            return None
+        rng = random.Random(sample_seed ^ 0x5F5F5F5F)
+        return {
+            position: frozenset({piece.kind})
+            for position, piece in sampled.board.items()
+            if piece.owner == owner and rng.random() < insight
+        }
 
     def _determinize(
         self, game: Game, hidden_owner: Owner, rng: random.Random
@@ -150,6 +178,8 @@ class SearchBot:
 
         constraints = self.knowledge.possible if self.knowledge is not None else {}
         commander_dead = self._commander_dead(sampled, hidden_owner)
+        rear = rear_rows(hidden_owner)
+        rear_slots = sum(1 for position in hidden_positions if position[0] in rear)
         assignment: dict[Position, PieceKind] | None = None
         for _ in range(8):
             hidden_kinds = self._sample_survivors(
@@ -158,6 +188,7 @@ class SearchBot:
                 rng,
                 commander_dead,
                 self.knowledge.destroyed if self.knowledge is not None else None,
+                rear_slots,
             )
             assignment = self._assign_constrained(
                 hidden_owner, hidden_positions, hidden_kinds, constraints, rng
@@ -165,11 +196,17 @@ class SearchBot:
             if assignment is not None:
                 break
         if assignment is None:
-            # Belief and sampled survivors cannot be reconciled; fall back to an
-            # unconstrained shuffle so the search still has a world to play in.
-            shuffled = self._sample_survivors(len(hidden_positions), revealed, rng)
-            rng.shuffle(shuffled)
-            assignment = dict(zip(hidden_positions, shuffled, strict=True))
+            # Belief and sampled survivors cannot be reconciled. Fall back to a
+            # world that ignores the *belief* but still obeys the *rules* -- the
+            # old fallback was a bare shuffle, which happily put mines in
+            # midfield and the flag outside a headquarters, i.e. worlds the game
+            # could never have produced.
+            shuffled = self._sample_survivors(
+                len(hidden_positions), revealed, rng, rear_slots=rear_slots
+            )
+            assignment = self._place_by_rules(
+                hidden_owner, hidden_positions, shuffled, rng
+            )
         for position, kind in assignment.items():
             sampled.board[position] = Piece(hidden_owner, kind)
         return sampled
@@ -191,6 +228,7 @@ class SearchBot:
         rng: random.Random,
         commander_dead: bool = False,
         destroyed: Counter[PieceKind] | None = None,
+        rear_slots: int | None = None,
     ) -> list[PieceKind]:
         """Guess which ranks are still alive without looking at the real board.
 
@@ -211,10 +249,29 @@ class SearchBot:
             pool[PieceKind.COMMANDER] = 0
         for kind, dead in (destroyed or Counter()).items():
             pool[kind] = max(0, pool[kind] - dead)
+        if rear_slots is not None:
+            # Mines never move, so a live mine must be standing on one of the
+            # enemy's own rear-row squares -- there cannot be more of them than
+            # there are such squares still occupied. Pure occupancy, no hidden
+            # rank read.
+            #
+            # Without this the estimate keeps all three mines alive forever,
+            # because a mine only dies to an engineer (proven, and subtracted
+            # above) or to a bomb -- and a bomb trades with *every* rank, so a
+            # bomb kill is unprovable and never subtracted. The phantom mines
+            # are not merely a bad prior: `_assign_constrained` may then have
+            # more mines than legal rear squares to put them on, fail all eight
+            # attempts, and fall through to the unconstrained shuffle that
+            # scatters mines across the middle of the board.
+            # The flag is also stuck in the rear (a headquarters sits there), so
+            # it consumes one of the same slots.
+            room = max(0, rear_slots - pool[PieceKind.FLAG])
+            pool[PieceKind.MINE] = min(pool[PieceKind.MINE], room)
 
         survivors = list(pool.elements())
-        # A flag never dies while the game runs; a mine only falls to an
-        # engineer or a bomb, and those we count above.
+        # A flag never dies while the game runs, and a mine is far more likely
+        # to be alive than a mobile piece, so both are the last to be guessed
+        # dead -- but the cap above has already bounded how many can be here.
         protected = {PieceKind.FLAG, PieceKind.MINE}
         for _ in range(max(0, len(survivors) - count)):
             removable = [
@@ -228,6 +285,51 @@ class SearchBot:
             ] or list(range(len(survivors)))
             survivors.pop(rng.choice(removable))
         return survivors
+
+    @staticmethod
+    def _place_by_rules(
+        owner: Owner,
+        positions: list[Position],
+        kinds: list[PieceKind],
+        rng: random.Random,
+    ) -> dict[Position, PieceKind]:
+        """Seat every rank on a square the rules actually allow.
+
+        Hardest first: a flag fits only a headquarters and a mine only the rear
+        two rows, so those are seated before the ranks that fit anywhere. Used
+        only when the belief-constrained solver gives up -- this ignores belief,
+        but an illegal world is worse than an uninformed one.
+        """
+        rear = rear_rows(owner)
+        homes = headquarters(owner)
+        free = sorted(positions)
+        rng.shuffle(free)
+
+        def take(fits) -> Position | None:
+            for index, position in enumerate(free):
+                if fits(position):
+                    return free.pop(index)
+            return None
+
+        def difficulty(kind: PieceKind) -> int:
+            if kind == PieceKind.FLAG:
+                return 0
+            return 1 if kind == PieceKind.MINE else 2
+
+        assignment: dict[Position, PieceKind] = {}
+        for kind in sorted(kinds, key=difficulty):
+            if kind == PieceKind.FLAG:
+                position = take(lambda square: square in homes)
+            elif kind == PieceKind.MINE:
+                position = take(lambda square: square[0] in rear)
+            else:
+                position = None
+            if position is None:
+                position = take(lambda _: True)
+            if position is None:
+                break
+            assignment[position] = kind
+        return assignment
 
     def _assign_constrained(
         self,
@@ -303,13 +405,20 @@ class SearchBot:
             2.0 ** -self._mobile_count(game, owner.other)
             - 2.0 ** -self._mobile_count(game, owner)
         )
-        return (
+        total = (
             material * weights.eval_material
             + mobility * weights.eval_mobility
             + concealment * weights.eval_commander
             + squeeze
             + self._flag_pressure(game, owner, own_moves)
         )
+        if weights.eval_value_scale:
+            # The learned leaf evaluation, added rather than substituted so the
+            # coefficient sweeps continuously from today's bot to a learned one.
+            model = load_value_model()
+            if model is not None:
+                total += weights.eval_value_scale * model.advantage(game, owner)
+        return total
 
     @staticmethod
     def _mobile_count(game: Game, side: Owner) -> int:

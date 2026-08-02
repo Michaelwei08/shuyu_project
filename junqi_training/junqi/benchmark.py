@@ -14,7 +14,7 @@ import argparse
 import time
 from pathlib import Path
 
-from .arena import PoolReport, compare, evaluate, seeds_for
+from .arena import DEFAULT_SEARCH, PoolReport, compare, evaluate, seeds_for
 from .bot import BotWeights
 from .opponents import discover_history, standard_pool
 
@@ -67,8 +67,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help=(
-            "被测方军旗大本营相邻格最多埋几颗雷（默认 2）。"
-            "传 3 可复现旧的三雷封死布局"
+            "被测方军旗大本营相邻格最多埋几颗雷（默认 3，即全封）。"
+            "传 2 可复现 2026-08-01 那次被实测否决的松雷布局"
         ),
     )
     parser.add_argument(
@@ -78,6 +78,20 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "对照模型的同一参数。只改被测方自己的布阵，"
             "对手军队不变，所以配对比较依然成立"
+        ),
+    )
+    parser.add_argument(
+        "--search",
+        type=int,
+        nargs=3,
+        metavar=("SAMPLES", "BEAM", "REPLIES"),
+        default=None,
+        help=(
+            f"被测方的搜索预算，默认 {' '.join(map(str, DEFAULT_SEARCH))}。"
+            "所有权重都是在这个较浅的设置下调出来的，而网页“深思”档实际是 "
+            "28 18 5 外加一层 Python 侧没有的延伸搜索。"
+            "用 --search 28 18 5 可检验某个结论在实际部署深度下是否还成立"
+            "（同时作用于候选与对照，保持配对）"
         ),
     )
     return parser
@@ -98,6 +112,11 @@ def main() -> None:
     print(f"anchor: {anchor if anchor else 'NONE (opponents track the model)'}")
     print(f"pool: {len(pool)} opponents -> {[s.name for s in pool.specs]}")
 
+    search = tuple(arguments.search) if arguments.search else None
+    if search:
+        print(f"search budget: samples={search[0]} beam={search[1]} replies={search[2]}"
+              f"  (default {DEFAULT_SEARCH})")
+
     per_block = max(1, arguments.games // max(1, arguments.seeds))
     blocks = [
         seeds_for(per_block, pool, offset=100_000 * (block + 1))
@@ -116,6 +135,7 @@ def main() -> None:
             arguments.workers,
             candidate_screen_cap=arguments.screen_cap,
             incumbent_screen_cap=arguments.baseline_screen_cap,
+            search=search,
         )
         print(f"\n=== {arguments.model.name} vs {arguments.baseline.name} ===")
         print("candidate:")
@@ -132,7 +152,7 @@ def main() -> None:
     all_results = []
     for block, seeds in enumerate(blocks):
         report = evaluate(
-            weights, pool, seeds, arguments.workers, arguments.screen_cap
+            weights, pool, seeds, arguments.workers, arguments.screen_cap, search
         )
         all_results.extend(report.results)
         print(

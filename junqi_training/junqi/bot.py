@@ -92,7 +92,38 @@ class BotWeights:
     # than the current occupant, so a continuation cannot dissolve it: while an
     # enemy is within two moves of a live headquarters, having fewer than two
     # pieces covering its approaches is charged for.
-    eval_hq_supply: float = 8.0
+    eval_hq_supply: float = 0.0
+    # How much the fast move heuristic counts next to the sampled rollout when
+    # `SearchBot` picks a move. The two engines silently disagreed on this:
+    # Python used `base_score + rollout` while `web/lib/bot.ts` used
+    # `base * 2 + search`, so identical weights produced a different policy in
+    # the browser than in the harness that measured them. Shipped at 1.0, which
+    # keeps the Python side -- the side every result was measured on -- exactly
+    # as it was, and brings the browser into line. Which value is actually
+    # better is now a weight the harness can answer.
+    search_base_weight: float = 1.0
+    # How much the *modelled* opponent inside a rollout knows about our army.
+    # It knew nothing: `SearchBot._rollout` builds a `HeuristicBot` for reply
+    # ranking and never assigns `.knowledge`, so every sampled world assumed an
+    # opponent with no deductions at all while the bot itself runs a full
+    # `OpponentKnowledge`. The search therefore cannot represent an opponent who
+    # has worked out what our pieces are, and systematically over-rates lines
+    # that only survive against a blind reply.
+    #
+    # 0 reproduces that exactly; 1 models an omniscient opponent. Neither
+    # extreme is obviously right -- the oracle diagnostic puts perfect
+    # information at about +10 points of win rate, so assuming an omniscient
+    # replier overstates the danger by roughly that much. Ships at 0 so the
+    # harness decides. Note this reads only *our own* ranks, never theirs.
+    reply_insight: float = 0.0
+    # Weight on `models/value.json`, the leaf evaluation fit to self-play
+    # outcomes rather than tuned by hand (see `junqi/value.py`). The learned
+    # model is *added* to the existing terms rather than replacing them, so this
+    # sweeps continuously from "exactly today's bot" at 0 to "the learned model
+    # dominates" -- which keeps the whole change inside what `compare()` can
+    # measure as a weight. Ships at 0; nothing is adopted before a paired run
+    # says so. Inert with no `models/value.json` on disk.
+    eval_value_scale: float = 0.0
     # A commander's death reveals its own flag, so its life buys concealment
     # that material value (11, against a general's 10) does not price in.
     # Tempting, and measurably wrong: at 18.0 this scored -0.0213 +/- 0.0136

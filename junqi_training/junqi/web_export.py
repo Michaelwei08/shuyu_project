@@ -70,10 +70,76 @@ def parse(source: str) -> dict[str, float]:
     return {name: float(value) for name, value in entries}
 
 
+VALUE_HEADER = """\
+// GENERATED FILE -- do not edit by hand.
+// Written by `python -m junqi.web_export` from models/value.json.
+//
+// REFERENCE_* below is a fixed position and the prediction Python produces for
+// it. `lib/value.ts` reimplements the feature extractor, and the two must agree
+// exactly or the exported coefficients mean different things in the two
+// engines; `tests/bot-runtime.test.mjs` recomputes the reference and fails on
+// any drift.
+"""
+
+
+def render_value(model: "ValueModel | None") -> str:
+    """Emit the learned leaf evaluation plus a cross-engine drift check."""
+    from .arena import make_opening
+    from .game import Game
+    from .types import Owner, format_position
+
+    if model is None:
+        return (
+            VALUE_HEADER
+            + "\nexport const VALUE_WEIGHTS: number[] = [];\n"
+            + "export const REFERENCE_BOARD: Record<string, string> = {};\n"
+            + "export const REFERENCE_MOVE_COUNT = 0;\n"
+            + "export const REFERENCE_PREDICTION = 0.5;\n"
+        )
+
+    # Play into the position rather than scoring the opening. A starting board
+    # has equal material, equal piece counts and symmetric reach, so most
+    # features are 0 or identical for both sides and a drift check against it
+    # passes even when the extractor is wrong -- which it duly did.
+    from .opponents import HQRushBot
+    from .search_bot import SearchBot
+
+    game = Game(board=make_opening(20_260_801), turn=Owner.BOT)
+    players = {
+        Owner.BOT: SearchBot(BotWeights(), seed=5, samples=1, beam_width=3),
+        Owner.HUMAN: HQRushBot(seed=6),
+    }
+    while game.move_count < 34 and not game.over:
+        game.apply(players[game.turn].choose_move(game))
+    prediction = model.predict(game, Owner.BOT)
+    squares = {
+        format_position(position): f"{piece.owner.name}:{piece.kind.name}"
+        for position, piece in sorted(game.board.items())
+    }
+    lines = [VALUE_HEADER, "\nexport const VALUE_WEIGHTS: number[] = [\n"]
+    for index in range(0, len(model.weights), 6):
+        row = ", ".join(_number(v) for v in model.weights[index : index + 6])
+        lines.append(f"  {row},\n")
+    lines.append("];\n\nexport const REFERENCE_BOARD: Record<string, string> = {\n")
+    for coordinate, descriptor in squares.items():
+        lines.append(f'  "{coordinate}": "{descriptor}",\n')
+    lines.append("};\n\n")
+    lines.append(f"export const REFERENCE_MOVE_COUNT = {game.move_count};\n")
+    lines.append(f"export const REFERENCE_PREDICTION = {prediction!r};\n")
+    return "".join(lines)
+
+
 def export(model: Path, target: Path) -> BotWeights:
     weights = BotWeights.load(model)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(render(weights), encoding="utf-8", newline="\n")
+
+    from .value import DEFAULT_PATH, ValueModel
+
+    value_model = ValueModel.load(DEFAULT_PATH) if DEFAULT_PATH.exists() else None
+    (target.parent / "value-weights.ts").write_text(
+        render_value(value_model), encoding="utf-8", newline="\n"
+    )
     return weights
 
 
