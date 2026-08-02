@@ -47,23 +47,47 @@ round, in the wrong direction, and instrumenting 208 games showed the flag
 falling at the same rate under both caps (23/104 vs 21/104), so the stated
 reason for capping was not the mechanism either.
 
-## The one run still worth doing
+Blind pricing at `blind_battle = 9.0` then failed too, at 2418 paired games:
+**+0.0066 +/- 0.0133, p = 0.31**, minimum detectable +0.0218. The point estimate
+shrank as the sample grew (+0.19 at 78 games, +0.017 and +0.022 at 806, +0.0066
+at 2418), which is noise regressing to zero.
 
-Only the blind-attack pricing is live, and 806 games cannot settle it: the
-minimum detectable improvement at that size is +0.037, larger than the effect
-itself. Two independent runs put it at +0.0173 and +0.0218, both positive.
-Resolving it needs about three times the sample:
+## The one thing still open
+
+That run split cleanly by opponent class rather than randomly:
+
+    helped  defensive +4.5  hqrush +3.2  heuristic +3.0  engineer +2.7
+            material +2.7   hqrush-careful +2.2  heuristic-quiet +1.6
+            selective +0.9  random +0.5
+    hurt    search-mid -5.4  search-deep -4.6  search-shallow -3.0
+            selective-strict -1.6
+
+All eight greedy opponents positive, all three search opponents negative. The
+likely cause is that the fix changed two things at once: the rank *ordering*
+(which really was inverted) and the *magnitude*. The branch spans 14.6 points
+across the rank order at 9.0 where the old term spanned 0.73, so it drowns out
+the rollout the search is supposed to be steering by.
+
+`models/ab/blind-{2,4,6}.json` keep the ordering and turn the volume down
+(spans 3.2 / 6.5 / 9.7). Screen all three -- about 130s each:
+
+    for s in 2 4 6; do
+      $PY -m junqi.benchmark --games 800 --no-history --workers $W \
+          --model models/ab/blind-$s.json \
+          --baseline models/ab/pre-2026-08-01.json
+    done
+
+These are screens and picking the best of three inflates the false-positive
+rate, so a winner has to be confirmed on a larger sample before it means
+anything:
 
     $PY -m junqi.benchmark --games 2400 --seeds 3 --no-history --workers $W \
+        --model models/ab/blind-<best>.json \
         --baseline models/ab/pre-2026-08-01.json
 
-At ~2.6 core-seconds per game that is roughly 3.5 core-hours, so a few minutes
-of wall time on 48 cores. `--seeds 3` splits it into disjoint opening blocks,
-so a verdict does not rest on one lucky set of deployments.
-
-Accept on `p < 0.05` with a positive paired difference. If it rejects, read the
-"minimum detectable improvement" line before concluding: above the plausible
-effect size it means the sample was too small, not that the change is dead.
+If none of them clears `p < 0.05` at 2400 games, the whole line is dead: set
+`blind_battle` to 0, restore `unknown_risk`, and the answer is that the pool
+cannot distinguish these pricings at all.
 
 `--no-history` matters. The archived models in `models/history/` predate
 `blind_battle`, so they would load with the new default and are not the
