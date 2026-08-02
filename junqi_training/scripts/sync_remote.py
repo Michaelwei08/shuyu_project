@@ -136,23 +136,32 @@ stdlib SGD, weighted by eval_value_scale, now shipping at 15.0.
     1600/3200/6400, n=2400, corrupt       +0.0293/+0.0373/+0.0288  all p<0.01
     1600 games, n=2400, REPAIRED anchor   +0.0654 +/- 0.0123, p ~ 1e-6
 
-SETTLED, on one model (the 6400-game fit), both checks re-run with the
-zero-variance bug fixed, ~2400 games each. Seed-clustered p in brackets:
+SETTLED: real, and too small to adopt. One model (the 6400-game fit),
+seed-clustered p in brackets:
 
-    4 held-out opponents   +0.0389 +/- 0.0126   p = 0.0010  (0.0029)
-    full 13-opponent pool  +0.0161 +/- 0.0108   p = 0.067   (0.092)
+    4 held-out opponents, n=2400   +0.0389 +/- 0.0126   p = 0.0010 (0.0029)
+    full pool,            n=2418   +0.0161 +/- 0.0108   p = 0.067  (0.092)
+    full pool,            n=4836   +0.0093 +/- 0.0078   p = 0.11   (0.14)
 
-It clears the HARDER test -- the one built to catch overfitting to the pool --
-and does NOT clear the aggregate, which D012 names as the criterion. 8 of 13
-opponents improve (heuristic +5.1, search-shallow +4.8, material +4.3,
-search-mid +4.0), 5 worsen (search-deep -3.7, defensive -2.1); aggregate win
-rate 77.2% -> 78.4%. Detecting +0.016 on the aggregate needs ~3700 games and
-2418 were run, so it is UNDERPOWERED, not refuted. Settle it with:
+Clears the HARDER test -- the one built to catch overfitting to the pool -- and
+does not clear the aggregate that D012 names as the criterion. At n=4836 the
+95% CI is [-0.008, +0.026] and the minimum detectable improvement is +0.0128,
+above the observed +0.0093.
+
+Not contradictory, arithmetically consistent: the held-out four are 4/13 of the
+pool, so +0.0389 on them contributes +0.0120 to the aggregate, and the observed
++0.0093 says the other nine average zero. The term helps against the strongest
+opponents (heuristic +6.4, search-shallow +5.1) and does nothing against the
+rest.
+
+eval_value_scale therefore SHIPS AT 0; models/ab/value-on.json is the
+switched-on end. That is a bar-and-cost call, not a verdict of worthless:
++0.8 points of aggregate win rate is not worth 19% of a 420ms browser budget.
+Flip it on if the bar changes, if the browser stops binding, or if the pool is
+rebuilt so its ceiling is not the subject's own policy class (search-mid).
 
     $PY -m junqi.benchmark --games 4800 --seeds 3 --no-history --workers $W \
-        --baseline models/ab/value-off.json
-
-If that clears p<0.05, adopted for good. If not, set eval_value_scale to 0.
+        --model models/ab/value-on.json
 
 TRAP, and it cost a 910-second run: after adoption bot_weights.json CARRIES the
 scale under test, so any check comparing a candidate against "the shipped model"
