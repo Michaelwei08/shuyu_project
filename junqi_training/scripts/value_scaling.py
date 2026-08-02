@@ -117,6 +117,14 @@ def main() -> None:
         baseline = auc(
             [s for _, _, _, s in test], [y for _, y, _, _ in test]
         )
+        # Keep every size, not just the last one written. Running largest-first
+        # means a completed sweep leaves the SMALLEST model in `--output`, which
+        # is the opposite of what the ordering was meant to protect; the winner
+        # gets copied back at the end.
+        per_size = arguments.output.with_name(
+            f"{arguments.output.stem}-{size}{arguments.output.suffix}"
+        )
+        model.save(per_size)
         model.save(arguments.output)
         reset_cache()  # this process must re-read the model it just wrote
         print(f"  held-out AUC: shipped {baseline:.3f} -> learned {learned:.3f}",
@@ -149,8 +157,19 @@ def main() -> None:
     for size, positions, base, learn, diff, error in sorted(results):
         print(f"{size:>7}{positions:>11}{base:>10.3f}{learn:>10.3f}"
               f"{diff:>+14.4f}{error:>9.4f}")
+    best = max(results, key=lambda row: row[4])
+    source = arguments.output.with_name(
+        f"{arguments.output.stem}-{best[0]}{arguments.output.suffix}"
+    )
+    arguments.output.write_bytes(source.read_bytes())
+    print(f"\nbest by paired difference: {best[0]} games ({best[4]:+.4f}); "
+          f"copied {source.name} -> {arguments.output.name}")
     print(
-        "\nA curve still climbing means more games is the cheapest lever left.\n"
+        "Every size is also kept alongside, because the paired differences here\n"
+        "sit within about one SE of each other -- picking the max of three noisy\n"
+        "estimates overstates it, so prefer the SMALLEST size that performs, and\n"
+        "confirm the choice on fresh seeds before adopting.\n"
+        "A curve still climbing means more games is the cheapest lever left.\n"
         "A flat one means this feature set is done, and the next question is\n"
         "whether the opponent pool -- not the model -- is what limits it."
     )

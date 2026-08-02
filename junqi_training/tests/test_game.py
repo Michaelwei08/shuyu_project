@@ -1,8 +1,9 @@
+import json
 import random
 import tempfile
 import unittest
 from collections import Counter
-from dataclasses import asdict, replace
+from dataclasses import asdict, fields, replace
 from pathlib import Path
 
 from junqi.arena import compare, make_opening
@@ -797,6 +798,36 @@ class GameTests(unittest.TestCase):
             ValueModel(weights=[0.0] * (WIDTH - 1)).save(path)
             with self.assertRaises(ValueError):
                 ValueModel.load(path)
+
+    def test_the_anchor_pins_every_coefficient(self) -> None:
+        """The judging pool's yardstick must not move when a field is added.
+
+        `BotWeights.load` deliberately tolerates missing keys so archived models
+        still load -- but applied to the anchor that silently resolves every
+        newly added coefficient to *today's* default, so the yardstick shifts on
+        any commit that adds a field, with the file untouched. It had drifted
+        into running `unknown_risk` and `blind_battle` simultaneously: both
+        blind-attack penalties at once, which ten of thirteen pool opponents
+        then used. Rerun `python scripts/rebuild_anchor.py --write` if this
+        fails, and re-baseline afterwards.
+        """
+        anchor = Path(__file__).resolve().parents[1] / "models" / "defaults.json"
+        if not anchor.exists():
+            self.skipTest("no anchor in this checkout")
+        stored = json.loads(anchor.read_text(encoding="utf-8"))
+        expected = {descriptor.name for descriptor in fields(BotWeights)}
+        self.assertEqual(
+            set(stored),
+            expected,
+            "models/defaults.json is missing fields, so the pool silently "
+            "tracks the dataclass -- run scripts/rebuild_anchor.py --write",
+        )
+        # The two blind-attack pricings are alternatives, never both at once.
+        loaded = BotWeights.load(anchor)
+        self.assertFalse(
+            loaded.unknown_risk > 0 and loaded.blind_battle > 0,
+            "the anchor prices a blind attack twice over",
+        )
 
     def test_only_a_c_e_files_cross_the_river(self) -> None:
         game = Game(

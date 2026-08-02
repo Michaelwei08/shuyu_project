@@ -28,7 +28,7 @@ Pick one and pin it for the session, then check it before anything else:
     $PY -c 'import sys; print(sys.version)'
     cd junqi_training && $PY -m unittest discover -s tests
 
-Expect 41 tests, 1 skipped (the web-weights sync check; `web/` is not shipped
+Expect 42 tests, 1 skipped (the web-weights sync check; `web/` is not shipped
 here). Pick a worker count too -- this is CPU-bound, and on a dedicated box
 most cores is right:
 
@@ -93,43 +93,51 @@ cannot distinguish these pricings at all.
 `blind_battle`, so they would load with the new default and are not the
 opponents they were trained as.
 
-## The learned leaf evaluation
+## Two instrument repairs -- read before quoting any old number
 
-`junqi/value.py` fits the leaf evaluation to self-play outcomes instead of
-tuning it by hand -- 96 parameters, stdlib SGD, weighted by `eval_value_scale`
-which ships at 0 so it is inert until measured.
+**The anchor was not a yardstick.** models/defaults.json was missing seven
+fields, and BotWeights.load back-fills missing keys with TODAY's dataclass
+defaults -- so the anchor moved on every commit that added a coefficient, with
+the file untouched. It had drifted into running unknown_risk = 0.12 AND
+blind_battle = 9.0 at once: both blind-attack pricings, used by ten of thirteen
+pool opponents, making the pool over-cautious about attacking unknowns. That is
+the exact axis a human beat the bot on (76% vs 46%). Repaired; all 34 fields are
+now explicit and a test fails if a new one is added without rerunning:
 
-It is NOT adopted. The story so far, because each step overturned the last:
+    python scripts/rebuild_anchor.py --write
 
-    500 games trained,  check n=400   -0.0013 +/- 0.0318   nothing
-    2000 games trained, check n=400   +0.0631 +/- 0.0303   p=0.019, looked good
-    2000 games trained, check n=1600  +0.0210 +/- 0.0153   p=0.084, NOT significant
+**Paired SEs are optimistic by ~12%.** compare() treats matches as independent
+but 26 share each opening. Measured design effect 1.26 over 806 games. Multiply
+any reported SE by 1.12. It changes none of the 2026-08-01 conclusions.
 
-The n=400 screen did not survive a 4x sample, the same way blind pricing went
-from +0.19 to +0.0066. Treat any n=400 result here as a hint, never a verdict.
+## The learned leaf evaluation -- ADOPTED
 
-What IS established: data moves this and capacity does not. The same 96
-parameters at 2000 games instead of 500 lifted held-out AUC 0.707 -> 0.761. A
-capacity ladder on held-out games gains +0.038 AUC going 6 -> 30 features and
-NOTHING going 30 -> 96 (0.776 -> 0.771), with train AUC below test AUC at every
-rung -- i.e. underfitting, so a bigger model is the wrong lever.
+junqi/value.py fits the leaf evaluation to self-play outcomes: 96 parameters,
+stdlib SGD, weighted by eval_value_scale, now shipping at 15.0.
 
-+0.021 at SE 0.0153 is still the largest surviving candidate effect in the
-project. Detecting it needs SE < 0.0128, about 2400 check games. The scaling
-sweep runs the whole curve at that power, trains and checks at each size, and
-goes largest-first so a killed run still leaves the best model on disk:
+    500 games,  n=400,  corrupt anchor    -0.0013 +/- 0.0318   nothing
+    2000 games, n=400,  corrupt anchor    +0.0631 +/- 0.0303   screen only
+    2000 games, n=1600, corrupt anchor    +0.0210 +/- 0.0153   not significant
+    1600/3200/6400, n=2400, corrupt       +0.0293/+0.0373/+0.0288  all p<0.01
+    1600 games, n=2400, REPAIRED anchor   +0.0654 +/- 0.0123, p ~ 1e-6
 
-    $PY scripts/value_scaling.py --sizes 1600 3200 6400 --workers $W
+All checks are against four opponents excluded from the model's training. Two
+things to carry forward: an n=400 screen means nothing here, and the effect
+roughly DOUBLED once the anchor was repaired -- the instrument was hiding it.
 
-Roughly: collection is ~4 core-seconds a game, so 11200 games of training data
-is ~12 minutes on 46 cores, plus three 2400-game checks at ~11 games/second.
-Budget an hour. `--stride 4` keeps one position in four; consecutive plies share
-a label and are nearly identical, and taking all of them at 6400 games costs
-several GB.
+The data curve is flat above ~1600 games (the three sizes differ by under one
+SE), and capacity is not the constraint either (6->30 features gains +0.038
+held-out AUC, 30->96 gains nothing, train AUC below test AUC throughout). So
+neither more games nor a bigger model is the next lever.
 
-If the curve is still climbing at 6400, more self-play is the cheapest lever
-left. If it is flat, this feature set is finished and the open question becomes
-the opponent pool rather than the model.
+To re-baseline or to challenge the adoption:
+
+    $PY -m junqi.benchmark --games 2400 --seeds 3 --no-history --workers $W         --baseline models/ab/value-off.json
+
+To refit after any change to the anchor or the weights:
+
+    $PY -m junqi.value_training --games 1600 --workers $W --stride 4         --exclude search-deep search-mid selective selective-strict
+    $PY scripts/generalisation_check.py --workers $W --games 2400 --scales 15
 
 Only after that verdict should training resume from the new baseline:
 

@@ -23,7 +23,7 @@ from pathlib import Path
 
 from .arena import archive, compare, evaluate, seeds_for
 from .bot import BotWeights
-from .opponents import discover_history, standard_pool
+from .opponents import Pool, discover_history, standard_pool
 
 DEFAULT_MODEL = Path("models/bot_weights.json")
 DEFAULT_ARCHIVE = Path("models/history")
@@ -112,7 +112,16 @@ def train(
     accept_games: int,
     archive_dir: Path,
     start: BotWeights | None = None,
+    pool: Pool | None = None,
 ) -> BotWeights:
+    """Evolve weights against ``pool``, defaulting to the standard judging pool.
+
+    Passing a pool is what makes a best-response *exploiter* possible: aim the
+    same loop at a single opponent and it optimises to beat that one opponent
+    rather than the aggregate. See `scripts/exploiter.py` -- the resulting agent
+    is not meant to ship, it is meant to rejoin the pool as the kind of opponent
+    the pool does not otherwise contain.
+    """
     rng = random.Random(seed)
     incumbent = start or BotWeights()
     # Opponents must be identical for candidate and incumbent, so pin the
@@ -121,9 +130,11 @@ def train(
     anchor = output.parent / "defaults.json"
     if not anchor.exists():
         BotWeights().save(anchor)
-    pool = standard_pool(
-        history=discover_history(archive_dir), anchor=str(anchor)
-    )
+    fixed_pool = pool is not None
+    if pool is None:
+        pool = standard_pool(
+            history=discover_history(archive_dir), anchor=str(anchor)
+        )
     scale = 0.25
     accepted = 0
 
@@ -152,9 +163,13 @@ def train(
             label = f"gen{generation:03d}"
             archive(incumbent, archive_dir, label)
             incumbent.save(output)
-            pool = standard_pool(
-                history=discover_history(archive_dir), anchor=str(anchor)
-            )
+            if not fixed_pool:
+                # Refresh so the newly archived model joins as an opponent.
+                # A caller-supplied pool is a deliberate choice and must not
+                # be silently replaced by the standard one.
+                pool = standard_pool(
+                    history=discover_history(archive_dir), anchor=str(anchor)
+                )
             print(f"  ACCEPTED -> {output} (archived as {label})", flush=True)
             # 1/5 success rule: widen after a hit, shrink while missing.
             scale = min(0.6, scale * 1.3)

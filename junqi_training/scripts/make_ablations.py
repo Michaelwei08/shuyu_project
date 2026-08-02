@@ -59,12 +59,15 @@ def main() -> None:
     # of better odds. These keep the ordering and walk the volume back down.
     for scale in (2.0, 4.0, 6.0):
         variants[f"blind-{scale:g}"] = replace(shipped, blind_battle=scale)
-    # The learned leaf evaluation. `models/value.json` is on disk but weighted 0,
-    # so the shipped model IS the "off" end and these are the "on" candidates.
-    # The advantage term is bounded to [-1, 1]; for scale, material contributes
-    # up to about +/-100 and `eval_hq_breach` is 26, so this brackets "a nudge"
-    # through "comparable to the headquarters terms".
-    for scale in (15.0, 35.0, 70.0):
+    # The learned leaf evaluation is now ADOPTED at scale 15, so the shipped
+    # model is the "on" end and this is the "off" end -- the file to re-baseline
+    # against, and the one to reach for if a later change makes the fitted
+    # evaluation look suspect.
+    variants["value-off"] = replace(shipped, eval_value_scale=0.0)
+    # Scales either side of the adopted one, for a later power-matched sweep.
+    # Only 15 has been measured; 35 and 70 passed once at n=400, which today's
+    # record says means nothing.
+    for scale in (35.0, 70.0):
         variants[f"value-{scale:g}"] = replace(shipped, eval_value_scale=scale)
     arguments.out.mkdir(parents=True, exist_ok=True)
     for name, weights in variants.items():
