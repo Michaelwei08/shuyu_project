@@ -136,9 +136,30 @@ stdlib SGD, weighted by eval_value_scale, now shipping at 15.0.
     1600/3200/6400, n=2400, corrupt       +0.0293/+0.0373/+0.0288  all p<0.01
     1600 games, n=2400, REPAIRED anchor   +0.0654 +/- 0.0123, p ~ 1e-6
 
-All checks are against four opponents excluded from the model's training. Two
-things to carry forward: an n=400 screen means nothing here, and the effect
-roughly DOUBLED once the anchor was repaired -- the instrument was hiding it.
+SETTLED, on one model (the 6400-game fit), both checks re-run with the
+zero-variance bug fixed, ~2400 games each. Seed-clustered p in brackets:
+
+    4 held-out opponents   +0.0389 +/- 0.0126   p = 0.0010  (0.0029)
+    full 13-opponent pool  +0.0161 +/- 0.0108   p = 0.067   (0.092)
+
+It clears the HARDER test -- the one built to catch overfitting to the pool --
+and does NOT clear the aggregate, which D012 names as the criterion. 8 of 13
+opponents improve (heuristic +5.1, search-shallow +4.8, material +4.3,
+search-mid +4.0), 5 worsen (search-deep -3.7, defensive -2.1); aggregate win
+rate 77.2% -> 78.4%. Detecting +0.016 on the aggregate needs ~3700 games and
+2418 were run, so it is UNDERPOWERED, not refuted. Settle it with:
+
+    $PY -m junqi.benchmark --games 4800 --seeds 3 --no-history --workers $W \
+        --baseline models/ab/value-off.json
+
+If that clears p<0.05, adopted for good. If not, set eval_value_scale to 0.
+
+TRAP, and it cost a 910-second run: after adoption bot_weights.json CARRIES the
+scale under test, so any check comparing a candidate against "the shipped model"
+races it against itself and prints +0.0000 +/- 0.0000, p = 1.0000 -- which reads
+exactly like a clean negative. Both scripts now zero the scale to build their
+baseline and abort on zero variance. An n=400 screen also still means nothing
+here; the effect roughly doubled once the anchor was repaired.
 
 The data curve is flat above ~1600 games (the three sizes differ by under one
 SE), and capacity is not the constraint either (6->30 features gains +0.038
