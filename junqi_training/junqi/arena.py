@@ -325,7 +325,11 @@ def _report_progress(futures: list, workers: int) -> None:
     total = len(futures)
     if total < 200:
         return
-    step = max(1, total // 20)
+    # Every 5% is one line per 720 matches on a 14400-game run, which is over a
+    # minute of silence before the first one -- long enough to look like a hang
+    # and get the run killed, which is exactly what happened on 2026-08-03. Cap
+    # the step so the gap stays roughly constant however large the run is.
+    step = max(1, min(total // 20, 250))
     state = {"done": 0, "started": time.perf_counter()}
     lock = threading.Lock()
 
@@ -333,7 +337,8 @@ def _report_progress(futures: list, workers: int) -> None:
         with lock:
             state["done"] += 1
             done = state["done"]
-        if done % step and done != total:
+        # An early line proves the pool is alive before the first full step.
+        if done != 25 and done % step and done != total:
             return
         elapsed = time.perf_counter() - state["started"]
         rate = done / elapsed if elapsed else 0.0
