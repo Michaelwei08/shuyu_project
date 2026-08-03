@@ -141,8 +141,11 @@ def main() -> None:
     parser.add_argument(
         "--output-tokens",
         type=int,
-        default=600,
-        help="mean output per call INCLUDING thinking, which is billed as output",
+        default=2300,
+        help="mean output per call INCLUDING thinking, which is billed as output. "
+        "The default is measured: 2,258 tokens/call over 36 probes on Opus 5 at "
+        "harness-default effort. A first guess of 600 was wrong by ~4x, and "
+        "output dominates the bill -- so effort is the real cost lever",
     )
     parser.add_argument("--batch-probes", action="store_true")
     args = parser.parse_args()

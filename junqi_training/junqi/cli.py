@@ -192,7 +192,8 @@ def play(
             seed=seed,
             samples=search_samples,
             reply_width=search_replies,
-            gamma=1.0 if opponent == "oracle" else 0.5,
+            gamma=0.5 if opponent == "oracle-half" else 1.0,
+            gamma_beam=1.0 if opponent == "oracle-perfect" else 0.0,
         )
     rng = random.Random(seed)
     bot_deployment = (
@@ -279,12 +280,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--opponent",
-        choices=("search", "oracle", "oracle-half"),
+        choices=("search", "oracle", "oracle-half", "oracle-perfect"),
         default="search",
         help=(
             "对手类型。search 是正常出厂 Bot；"
             "oracle **会看穿你的全部暗子**（同样的权重，只是不再采样猜测），"
-            "oracle-half 只看穿一半。后两者是测量工具，不是会发布的对手"
+            "但候选走法仍由不作弊的启发式挑选；"
+            "oracle-perfect 连挑candidate也用真实军衔，是真正的上界；"
+            "oracle-half 只看穿一半。这三个是测量工具，不是会发布的对手"
         ),
     )
     parser.add_argument(

@@ -111,10 +111,12 @@ def main() -> None:
             cache.put(args.model, variant, prompt, cached)
         return score(probe, cached)
 
-    print(
-        f"scoring {len(probes)} probes on {args.model} "
-        f"(effort={args.effort}, thinking={args.thinking})"
+    knobs = (
+        "harness defaults"
+        if args.backend == "claude-cli"
+        else f"effort={args.effort}, thinking={args.thinking}"
     )
+    print(f"scoring {len(probes)} probes on {args.model} via {args.backend} ({knobs})")
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         results = list(pool.map(run, probes))
 

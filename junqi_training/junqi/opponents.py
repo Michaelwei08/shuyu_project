@@ -117,6 +117,7 @@ class OracleSearchBot(SearchBot):
         beam_width: int = 10,
         reply_width: int = 4,
         gamma: float = 1.0,
+        gamma_beam: float = 0.0,
     ) -> None:
         # At gamma 1 every sampled world is the same world, so N samples is N
         # identical rollouts. Collapsing to one makes the strongest opponent in
@@ -129,6 +130,35 @@ class OracleSearchBot(SearchBot):
             reply_width,
         )
         self.gamma = gamma
+        self.gamma_beam = gamma_beam
+
+    def _update_knowledge(self, game: Game, owner: Owner) -> None:
+        """Optionally let the *candidate generator* cheat as well.
+
+        `gamma` alone only buys a truthful rollout. The beam that decides which
+        ten moves get rolled out at all is still ranked by
+        `HeuristicBot._score` using ordinary deduced belief -- so a move that is
+        strong *only because* you can see the enemy's ranks ("take C7, it is a
+        lieutenant") has to look attractive to a blind heuristic before the
+        oracle is even allowed to consider it. That caps how much the cheat is
+        worth, and it is why the plain oracle understates perfect information.
+
+        Setting `gamma_beam` collapses the belief to singletons of the true
+        ranks, so the heuristic prices every capture exactly and
+        `enemy_flag_squares` resolves to the real flag square. This is the
+        genuine upper bound, and correspondingly the least like a human.
+        """
+        super()._update_knowledge(game, owner)
+        if self.gamma_beam <= 0.0 or self.knowledge is None:
+            return
+        # Seeded from the ply so a given position always reveals the same
+        # subset, keeping the agent deterministic under common random numbers.
+        rng = random.Random(self.base_seed * 7_919 + game.move_count)
+        for position, piece in game.board.items():
+            if piece.owner != owner.other or piece.revealed:
+                continue
+            if self.gamma_beam >= 1.0 or rng.random() < self.gamma_beam:
+                self.knowledge.possible[position] = frozenset({piece.kind})
 
     def _determinize(
         self, game: Game, hidden_owner: Owner, rng: random.Random
@@ -286,6 +316,9 @@ class AgentSpec:
     #: Fraction of hidden ranks an `oracle` agent sees. 1.0 is full
     #: clairvoyance; lower values are Suphx's dropout schedule.
     gamma: float = 1.0
+    #: Fraction the oracle's *candidate generator* also sees. 0 keeps the
+    #: beam honest, which is what makes the plain oracle a lower bound.
+    gamma_beam: float = 0.0
     #: ``"module:attribute"`` naming a factory ``(spec, weights, seed) -> player``.
     #: Resolved by import *inside the worker*, so an agent that needs a network
     #: client or a third-party SDK can join the pool without `junqi` importing
@@ -318,6 +351,7 @@ class AgentSpec:
                 beam_width=self.beam_width,
                 reply_width=self.reply_width,
                 gamma=self.gamma,
+                gamma_beam=self.gamma_beam,
             )
         if self.kind == "heuristic":
             return HeuristicBot(shaped, seed=seed)
@@ -417,6 +451,13 @@ def standard_pool(
         AgentSpec(
             "oracle-half", "oracle", weights_path=anchor, samples=4,
             beam_width=10, gamma=0.5,
+        ),
+        # The genuine upper bound: the candidate generator cheats too, so a
+        # move that is only good because the enemy ranks are visible can
+        # actually reach the beam.
+        AgentSpec(
+            "oracle-perfect", "oracle", weights_path=anchor, beam_width=10,
+            gamma=1.0, gamma_beam=1.0,
         ),
     ]
     if stable is not None:
