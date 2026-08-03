@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .board import (
     CAMPS,
+    HEADQUARTERS,
     engineer_rail_destinations,
     road_neighbors,
     straight_rail_destinations,
@@ -154,6 +155,29 @@ class BotWeights:
     # to 6. Both went in together and may pull opposite ways, so it is a weight
     # too -- the metric and its rescaling need separating.
     eval_horizon: float = 6.0
+    # Cost of ending a move on a headquarters square, per point of piece value.
+    # Immobility attaches to the *square*, not to the piece deployed there --
+    # `_destinations` returns an empty set for any source in HEADQUARTERS -- so
+    # a piece that wins a headquarters probe is alive, still counted in
+    # material, and permanently useless.
+    #
+    # Nothing priced that before. The mobility term is the only one that could
+    # notice, and it is skipped whenever the target is an unrevealed occupied
+    # square, which is exactly what a probe is; `_rollout` runs `quick=True`,
+    # which drops it entirely. Meanwhile `blind_battle` correctly prefers the
+    # attacker with the best odds. The two compose into "send the commander",
+    # because *winning* the probe is what entombs you -- so the stronger the
+    # prober, the likelier the worst non-winning outcome.
+    #
+    # Measured over 320 pool games: 136 entombments, mean value 8.8, and
+    # COMMANDER was the single most frequent rank to be entombed (41 of 136)
+    # against ENGINEER's 1. Scaling by `_piece_value` is right here for the
+    # reason it was wrong in `blind_battle`: this term prices lost future value,
+    # not odds.
+    #
+    # Ships at 0 until it has a paired p-value. `models/ab/entomb-on.json` is
+    # the switched-on end.
+    eval_hq_entomb: float = 0.0
     # 1 = also run `OpponentKnowledge.eliminate_dead_ranks`, which counts the
     # casualty record and drops ranks it proves extinct from every belief set;
     # 0 = per-square battle constraints only, the deduction as it has always
@@ -249,6 +273,16 @@ class HeuristicBot:
             else:
                 score += _prior_battle(piece.kind) * weights.blind_battle
                 score -= _piece_value(piece.kind) * weights.unknown_risk
+
+        # Ending on a headquarters freezes the piece for the rest of the game.
+        # Skipped when the square is known to hold the flag, because then the
+        # game ends on this move and being frozen costs nothing. Cheap enough
+        # for `quick=True`, unlike the mobility term that should have caught it.
+        takes_flag = target is not None and (
+            target.revealed or (certain and move.dst in targets)
+        )
+        if weights.eval_hq_entomb and move.dst in HEADQUARTERS and not takes_flag:
+            score -= _piece_value(piece.kind) * weights.eval_hq_entomb
 
         if not quick and weights.mobility and (target is None or target.revealed):
             simulated = game.clone()

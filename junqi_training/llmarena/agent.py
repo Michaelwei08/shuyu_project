@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import random
 import re
+import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -60,6 +61,9 @@ class TurnRecord:
 
     ply: int
     side: str
+    #: The builder seed, so turns from concurrently-played games can be told
+    #: apart when every agent writes into one shared sink.
+    seed: int = -1
     scaffold: str
     legal_count: int
     #: Every raw completion, in order. Length > 1 only under the retry policy.
@@ -77,6 +81,7 @@ class TurnRecord:
         return {
             "ply": self.ply,
             "side": self.side,
+            "seed": self.seed,
             "scaffold": self.scaffold,
             "legal_count": self.legal_count,
             "responses": self.responses,
@@ -139,6 +144,7 @@ class LLMAgent:
         self.repair = repair
         self.max_retries = max_retries
         self.rng = random.Random(seed)
+        self.seed = -1 if seed is None else seed
         self.transcript: list[TurnRecord] = (
             transcript if transcript is not None else []
         )
@@ -169,6 +175,7 @@ class LLMAgent:
         record = TurnRecord(
             ply=game.move_count,
             side=player.name,
+            seed=self.seed,
             scaffold=self.scaffold.name,
             legal_count=len(legal),
         )
@@ -274,6 +281,23 @@ def make_completer(name: str, options: dict[str, str]) -> Completer:
     return COMPLETERS[name](options)
 
 
+#: Shared sink for every agent built through the registry. `play_match` builds
+#: and discards its players, so without this the transcript -- the whole reason
+#: the raw proposal is recorded separately from the repair -- never leaves the
+#: worker. Entries carry their builder seed so concurrent games stay separable.
+TRANSCRIPT: list[TurnRecord] = []
+_TRANSCRIPT_LOCK = threading.Lock()
+
+
+class _SharedTranscript(list):
+    """A per-agent list that also mirrors into `TRANSCRIPT` under a lock."""
+
+    def append(self, record: TurnRecord) -> None:  # type: ignore[override]
+        super().append(record)
+        with _TRANSCRIPT_LOCK:
+            TRANSCRIPT.append(record)
+
+
 def build_agent(spec: Any, _weights: Any, seed: int) -> LLMAgent:
     """Factory behind ``AgentSpec(builder="llmarena.agent:build_agent")``.
 
@@ -287,14 +311,19 @@ def build_agent(spec: Any, _weights: Any, seed: int) -> LLMAgent:
     if scaffold_name not in SCAFFOLDS:
         raise ValueError(f"unknown scaffold {scaffold_name!r}")
     cache_root = options.get("cache")
+    completer = options.get("completer", "random-legal")
     effort = options.get("effort", "-")
     thinking = options.get("thinking", "-")
     return LLMAgent(
-        make_completer(options.get("completer", "random-legal"), options),
+        make_completer(completer, options),
         model=options.get("model", "stub"),
         scaffold=SCAFFOLDS[scaffold_name],
         cache=PromptCache(cache_root) if cache_root else NullCache(),
-        cache_namespace=f"{scaffold_name}/{effort}/{thinking}",
+        # The backend belongs in the key too. `claude-cli` answers the same
+        # prompt through ~5k tokens of Claude Code harness, so its replies are
+        # not interchangeable with the API's -- sharing a namespace would let
+        # one run silently replay the other's answers.
+        cache_namespace=f"{completer}/{scaffold_name}/{effort}/{thinking}",
         repair=options.get("repair", "fallback"),
         max_retries=int(options.get("max_retries", "2")),
         seed=seed,

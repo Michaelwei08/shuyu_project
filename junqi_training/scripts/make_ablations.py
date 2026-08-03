@@ -64,6 +64,19 @@ def main() -> None:
     # is therefore the "off" end and this is the "on" end -- flip to it the
     # moment the browser budget stops binding or the bar changes.
     variants["value-on"] = replace(shipped, eval_value_scale=15.0)
+    # A piece that wins a headquarters probe can never move again, and nothing
+    # priced that: `hq_strike` is 14.0 and rank-independent, so the branch is
+    # indifferent between probing with an engineer and probing with the
+    # commander -- while the rollout prefers the commander, because it survives.
+    # Measured over 320 pool games: COMMANDER was entombed 41 times to
+    # ENGINEER's 1, mean frozen value 8.8, 70.9 plies each.
+    #
+    # Three scales because the penalty has to be read against `hq_strike`. At
+    # 1.0 a commander probe costs 11 of that 14 and an engineer probe 3, so the
+    # ordering flips without forbidding the probe outright; 0.5 barely tilts it,
+    # 2.0 makes any expensive probe worse than not probing.
+    for scale in (0.5, 1.0, 2.0):
+        variants[f"entomb-{scale:g}"] = replace(shipped, eval_hq_entomb=scale)
     arguments.out.mkdir(parents=True, exist_ok=True)
     for name, weights in variants.items():
         destination = arguments.out / f"{name}.json"

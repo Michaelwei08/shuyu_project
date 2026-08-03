@@ -84,6 +84,17 @@ def search_equivalent(points: list[tuple[int, float]]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--backend",
+        default="anthropic",
+        choices=("anthropic", "claude-cli"),
+        help="claude-cli spends subscription quota instead of API credit, at "
+        "the cost of ~5k tokens of Claude Code harness in every prompt",
+    )
+    parser.add_argument(
+        "--workdir", type=Path, default=Path("data/cli-scratch"),
+        help="empty directory for the claude-cli backend",
+    )
     parser.add_argument("--model", default="claude-opus-5")
     parser.add_argument("--scaffold", default="legal", choices=("raw", "legal", "derived"))
     parser.add_argument("--effort", default="low")
@@ -104,18 +115,22 @@ def main() -> None:
     parser.add_argument("--confirm", action="store_true", help="actually spend money")
     args = parser.parse_args()
 
+    options = [
+        ("completer", args.backend),
+        ("model", args.model),
+        ("scaffold", args.scaffold),
+        ("cache", str(args.cache)),
+    ]
+    if args.backend == "claude-cli":
+        args.workdir.mkdir(parents=True, exist_ok=True)
+        options.append(("workdir", str(args.workdir)))
+    else:
+        options += [("effort", args.effort), ("thinking", args.thinking)]
     subject = AgentSpec(
         f"llm-{args.model}",
         "external",
         builder="llmarena.agent:build_agent",
-        options=(
-            ("completer", "anthropic"),
-            ("model", args.model),
-            ("scaffold", args.scaffold),
-            ("effort", args.effort),
-            ("thinking", args.thinking),
-            ("cache", str(args.cache)),
-        ),
+        options=tuple(options),
     )
 
     anchor = str(args.anchor) if args.anchor.exists() else None
@@ -155,12 +170,18 @@ def main() -> None:
     calls = round(len(jobs) * MEAN_PLIES * 0.5)
     print(f"plan: {len(jobs)} games ({len(rungs)} rungs x {args.seeds} seeds x 2 colours)")
     print(f"      ~{calls:,} model calls at ~{MEAN_PLIES} plies/game")
-    if args.model in MODELS:
+    if args.backend == "claude-cli":
+        print(
+            "      subscription quota, no API spend. Measured ceiling is ~90 "
+            "calls\n      per burst, so expect this to stop short and resume "
+            "from cache."
+        )
+    elif args.model in MODELS:
         guess = estimate(
-            args.model, calls, 1500, 600, cacheable_tokens=estimate_tokens(RULES)
+            args.model, calls, 1613, 2300, cacheable_tokens=estimate_tokens(RULES)
         )
         print(f"      rough cost ~${guess.dollars:.2f} (character-based estimate)")
-    print(f"      1 game in 12 hits the 300-ply cap -- budget headroom\n")
+    print("      1 game in 12 hits the 300-ply cap -- budget headroom\n")
     if not args.confirm:
         print("dry run. re-run with --confirm to play.")
         return
