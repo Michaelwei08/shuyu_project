@@ -42,7 +42,7 @@ from junqi.types import SYMBOLS, Owner, Position, format_position
 from .belief import BeliefTracker
 from .view import MOVABLE_KINDS_COUNT, Observation, Scaffold, build_observation, render
 
-PROBE_KINDS = ("legal_moves", "flag_candidates", "belief")
+PROBE_KINDS = ("legal_moves", "flag_candidates", "belief", "tightest")
 
 #: Each probe is rendered with the scaffold flag that would hand over its own
 #: answer switched **off**. Enforced by
@@ -56,6 +56,9 @@ PROBE_SCAFFOLDS: dict[str, Scaffold] = {
     ),
     "belief": Scaffold(
         "probe-belief", legal_moves=True, flag_candidates=True, belief=False
+    ),
+    "tightest": Scaffold(
+        "probe-tightest", legal_moves=True, flag_candidates=True, belief=False
     ),
 }
 
@@ -128,15 +131,37 @@ def _answer_line(text: str) -> str:
 
 
 def score(probe: Probe, response: str) -> dict[str, Any]:
-    """Grade one answer. Exact set match is primary, Jaccard is the gradient."""
+    """Grade one answer.
+
+    For ``legal_moves`` and ``flag_candidates`` the engine's label *is* the
+    answer, and exact set match is the whole story.
+
+    ``belief`` is different, and getting this wrong reverses the result.
+    ``OpponentKnowledge`` intersects per-square battle constraints and nothing
+    else -- it does no global rank counting, no bomb-exhaustion argument, no
+    "that rank already died elsewhere". Its ``possible`` set is therefore a
+    *sound but loose upper bound*, and an answerer that reasons better can
+    return a strict subset that is still correct. Scored as equality that looks
+    like a wrong answer.
+
+    So when the true rank is known (recorded by the generator, never rendered
+    into the prompt) three things are reported separately:
+
+    * ``sound`` -- the prediction still contains the piece's actual rank. False
+      means a genuine error: the answer excluded the truth.
+    * ``over_wide`` -- the prediction includes a rank the engine has *proven*
+      impossible. Also a genuine error, in the other direction.
+    * ``tighter_by`` -- how many ranks the prediction eliminates beyond the
+      engine. Positive *and* sound means the answerer out-deduced the label.
+    """
     predicted = (
         parse_kinds(response)
-        if probe.kind == "belief"
+        if probe.kind in ("belief", "tightest")
         else parse_squares(response)
     )
     truth = set(probe.label)
     union = predicted | truth
-    return {
+    result = {
         "probe_id": probe.probe_id,
         "kind": probe.kind,
         "exact": predicted == truth,
@@ -144,6 +169,15 @@ def score(probe: Probe, response: str) -> dict[str, Any]:
         "predicted": sorted(predicted),
         "label": sorted(truth),
     }
+    true_kind = probe.meta.get("true_kind")
+    if true_kind is not None:
+        result["true_kind"] = true_kind
+        result["sound"] = true_kind in predicted
+        result["over_wide"] = bool(predicted - truth)
+        result["tighter_by"] = len(truth - predicted)
+        # The honest headline for a loose-upper-bound label.
+        result["correct"] = result["sound"] and not result["over_wide"]
+    return result
 
 
 # --- generation -----------------------------------------------------------
@@ -197,7 +231,7 @@ def _flag_probe(obs: Observation, probe_id: str) -> Probe | None:
 
 
 def _belief_probe(
-    obs: Observation, rng: random.Random, probe_id: str
+    obs: Observation, rng: random.Random, probe_id: str, game: Game | None = None
 ) -> Probe | None:
     informative = [
         (square, kinds)
@@ -207,6 +241,14 @@ def _belief_probe(
     if not informative:
         return None
     square, kinds = rng.choice(informative)
+    # The piece's actual rank, recorded for scoring only. `meta` is never
+    # rendered -- `Probe.prompt()` reads the observation and the question and
+    # nothing else -- so this cannot reach the model.
+    true_kind = (
+        game.board[square].kind.name
+        if game is not None and square in game.board
+        else None
+    )
     return Probe(
         probe_id=probe_id,
         kind="belief",
@@ -217,7 +259,62 @@ def _belief_probe(
             "最后一行只输出军衔名称，用空格分隔，例如：司 军 师"
         ),
         label=tuple(sorted(kind.name for kind in kinds)),
-        meta={"square": format_position(square), "size": len(kinds)},
+        meta={
+            "square": format_position(square),
+            "size": len(kinds),
+            "true_kind": true_kind,
+        },
+    )
+
+
+def _tightest_probe(
+    obs: Observation, rng: random.Random, probe_id: str, game: Game | None = None
+) -> Probe | None:
+    """The hard version of `belief`: ask for the *tightest* provable set.
+
+    `belief` asks what is possible and is graded generously, and Opus 5
+    saturated it -- 12/12 correct, three of them strictly tighter than the
+    engine's own deduction. There is no headroom left to measure with.
+
+    This asks for the tightest set the answerer can *prove*, on positions where
+    the engine's deduction is loose enough to leave room, and grades against
+    the piece's true rank rather than the engine's set. Excluding the truth is
+    an error and including a proven-impossible rank is an error; everything
+    between those bounds is credit, and the score is how far below the engine's
+    set you get. Unbounded difficulty, and it measures the exact capability the
+    engine is missing -- see `OpponentKnowledge.eliminate_dead_ranks`, which is
+    inert precisely because it cannot do the counting this asks for.
+    """
+    roomy = [
+        (square, kinds)
+        for square, kinds in obs.belief
+        # Four or more leaves something worth eliminating; the whole point is
+        # to avoid positions the engine has already narrowed to a pair.
+        if 4 <= len(kinds) < MOVABLE_KINDS_COUNT
+    ]
+    if not roomy or game is None:
+        return None
+    square, kinds = rng.choice(roomy)
+    if square not in game.board:
+        return None
+    return Probe(
+        probe_id=probe_id,
+        kind="tightest",
+        observation=obs,
+        question=(
+            f"问题：对方在 {format_position(square)} 的那枚棋子，"
+            "请给出你**能够证明**的最小军衔集合。\n"
+            "只要能严格论证就可以排除：例如清点某个军衔的存活数量、"
+            "推断某枚棋子已经阵亡、或利用炸弹与地雷同归于尽这类唯一可能性。"
+            "排掉真实军衔算错，保留明显不可能的军衔也算错。\n"
+            "最后一行只输出军衔名称，用空格分隔，例如：司 军 师"
+        ),
+        label=tuple(sorted(kind.name for kind in kinds)),
+        meta={
+            "square": format_position(square),
+            "size": len(kinds),
+            "true_kind": game.board[square].kind.name,
+        },
     )
 
 
@@ -243,7 +340,14 @@ def generate(
             for owner in Owner
         }
         trackers = {owner: BeliefTracker(owner) for owner in Owner}
+        # `rng` is the legacy shared stream for the three original kinds.
+        # A new kind must NOT draw from it: probe selection is a function of
+        # RNG state, so an extra draw per ply shifts every later question and
+        # invalidates the whole cached battery. Adding `tightest` on the shared
+        # stream cost 52 already-paid answers before this was split out. Give
+        # each new kind its own stream, derived from the seed.
         rng = random.Random(seed * 7_919 + 11)
+        rng_tightest = random.Random(seed * 104_729 + 7)
 
         while not game.over and game.move_count < max_plies:
             mover = game.turn
@@ -254,7 +358,8 @@ def generate(
                 for probe in (
                     _legal_probe(obs, rng, f"legal_moves-{stem}"),
                     _flag_probe(obs, f"flag_candidates-{stem}"),
-                    _belief_probe(obs, rng, f"belief-{stem}"),
+                    _belief_probe(obs, rng, f"belief-{stem}", game),
+                    _tightest_probe(obs, rng_tightest, f"tightest-{stem}", game),
                 ):
                     if probe is not None:
                         yield probe

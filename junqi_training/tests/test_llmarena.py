@@ -30,6 +30,7 @@ from llmarena.agent import (
 from llmarena.belief import BeliefTracker
 from llmarena.cache import PromptCache
 from llmarena.probes import (
+    PROBE_KINDS,
     PROBE_SCAFFOLDS,
     Probe,
     _belief_probe,
@@ -419,11 +420,71 @@ class ProbeTests(unittest.TestCase):
                 break
         self.assertGreater(found, 5)
 
+    def test_the_true_rank_is_recorded_for_scoring_but_never_rendered(self) -> None:
+        """`meta` must not reach the model.
+
+        The belief label is the engine's per-square deduction, which does no
+        rank counting -- so it is a loose upper bound and a better answer can
+        be a strict subset of it. Scoring needs the piece's actual rank; the
+        prompt must not have it.
+        """
+        probes = [
+            p
+            for p in generate(range(61, 75), WEIGHTS, max_plies=60)
+            if p.kind == "belief"
+        ]
+        self.assertTrue(probes)
+        for probe in probes:
+            self.assertIn("true_kind", probe.meta)
+            self.assertIsNotNone(probe.meta["true_kind"])
+            # The true rank is always inside the engine's set: the engine is
+            # loose, never wrong.
+            self.assertIn(probe.meta["true_kind"], probe.label)
+            # prompt() is a pure function of observation + question.
+            twin = Probe(
+                probe_id=probe.probe_id,
+                kind=probe.kind,
+                observation=probe.observation,
+                question=probe.question,
+                label=probe.label,
+                meta={"square": probe.meta["square"], "true_kind": "COMMANDER"},
+            )
+            self.assertEqual(probe.prompt(), twin.prompt())
+
+    def test_out_deducing_the_engine_scores_as_correct_not_as_an_error(self) -> None:
+        probe = Probe(
+            probe_id="x",
+            kind="belief",
+            observation=build_observation(
+                Game(board=make_opening(42), turn=Owner.HUMAN), Owner.HUMAN
+            ),
+            question="q",
+            label=("BRIGADIER", "GENERAL", "MAJOR_GENERAL"),
+            meta={"square": "D12", "true_kind": "MAJOR_GENERAL"},
+        )
+        # Drops GENERAL, keeps the truth -- tighter than the engine, still right.
+        tighter = score(probe, "师 旅")
+        self.assertFalse(tighter["exact"])  # equality scoring calls this wrong
+        self.assertTrue(tighter["correct"])  # ground truth calls it right
+        self.assertEqual(tighter["tighter_by"], 1)
+
+        # Dropping the true rank is a real error.
+        wrong = score(probe, "旅")
+        self.assertFalse(wrong["sound"])
+        self.assertFalse(wrong["correct"])
+
+        # Adding a rank the engine proved impossible is also a real error.
+        wide = score(probe, "师 旅 军 工")
+        self.assertTrue(wide["sound"])
+        self.assertTrue(wide["over_wide"])
+        self.assertFalse(wide["correct"])
+
     def test_a_probe_prompt_never_contains_its_own_answer(self) -> None:
         forbidden = {
             "legal_moves": LEGAL_BLOCK_MARKER,
             "flag_candidates": FLAG_BLOCK_MARKER,
             "belief": BELIEF_BLOCK_MARKER,
+            "tightest": BELIEF_BLOCK_MARKER,
         }
         probes = list(generate(range(24, 30), WEIGHTS, max_plies=50))
         self.assertTrue(probes)
@@ -475,7 +536,7 @@ class ProbeTests(unittest.TestCase):
     def test_the_battery_is_balanced_across_kinds(self) -> None:
         probes = list(generate(range(51, 71), WEIGHTS, max_plies=80))
         chosen = balanced(probes, per_kind=5)
-        counts = {kind: 0 for kind in ("legal_moves", "flag_candidates", "belief")}
+        counts = {kind: 0 for kind in PROBE_KINDS}
         for probe in chosen:
             counts[probe.kind] += 1
         for kind, count in counts.items():

@@ -229,6 +229,65 @@ class CostTests(unittest.TestCase):
             self.assertGreater(spec.cache_min_tokens, 0)
 
 
+class CliBackendTests(unittest.TestCase):
+    def test_it_refuses_to_run_where_project_context_would_be_loaded(self) -> None:
+        """Non-bare Claude Code auto-loads CLAUDE.md from its working directory.
+
+        Started in `military/`, the model would be handed the project's own
+        strategy documentation -- the mine prior, the flag-candidate deduction
+        -- which is every answer the probes ask for. Not a hidden-rank leak, but
+        a total giveaway, and silent.
+        """
+        import tempfile
+        from pathlib import Path
+
+        from llmarena.cli_completer import HarnessContamination, claude_cli_completer
+
+        with tempfile.TemporaryDirectory() as folder:
+            polluted = Path(folder) / "project"
+            polluted.mkdir()
+            (polluted / "CLAUDE.md").write_text("strategy notes", encoding="utf-8")
+            with self.assertRaises(HarnessContamination):
+                claude_cli_completer(polluted)
+
+            clean = Path(folder) / "scratch"
+            claude_cli_completer(clean)  # created on demand, no error
+            self.assertTrue(clean.exists())
+
+    def test_the_split_matches_the_api_backend(self) -> None:
+        # Both backends must send the same system/user division, or the two
+        # are not comparable even to each other.
+        from llmarena.anthropic_completer import split_cacheable
+
+        system, rest = split_cacheable(RULES + "\n\n位置")
+        self.assertEqual(system, RULES)
+        self.assertEqual(rest, "位置")
+
+
+class WilsonTests(unittest.TestCase):
+    def test_small_samples_get_honestly_wide_intervals(self) -> None:
+        from llmarena.analyse import wilson
+
+        low, high = wilson(9, 12)
+        self.assertLess(low, 0.50)
+        self.assertGreater(high, 0.90)
+
+    def test_the_interval_tightens_with_n(self) -> None:
+        from llmarena.analyse import wilson
+
+        small = wilson(9, 12)
+        large = wilson(113, 150)  # same rate, 12.5x the sample
+        self.assertLess(large[1] - large[0], small[1] - small[0])
+
+    def test_a_perfect_score_still_has_a_lower_bound_below_one(self) -> None:
+        from llmarena.analyse import wilson
+
+        low, high = wilson(12, 12)
+        self.assertLess(low, 1.0)
+        self.assertAlmostEqual(high, 1.0)
+        self.assertEqual(wilson(0, 0), (0.0, 0.0))
+
+
 class SearchEquivalentTests(unittest.TestCase):
     def test_rollouts_are_monotone_across_the_ladder(self) -> None:
         self.assertLess(rollouts(1, 4, 1), rollouts(3, 8, 3))

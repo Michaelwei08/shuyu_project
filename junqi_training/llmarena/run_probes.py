@@ -29,6 +29,7 @@ import argparse
 import json
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from itertools import zip_longest
 from pathlib import Path
 from statistics import fmean
 
@@ -64,6 +65,14 @@ def main() -> None:
     )
     parser.add_argument("--cache", type=Path, default=Path("data/cache"))
     parser.add_argument("--no-cache", action="store_true")
+    parser.add_argument(
+        "--cached-only",
+        action="store_true",
+        help="grade only what is already cached and spend nothing. Use this to "
+        "re-score after a change to the scoring rule -- the belief label is a "
+        "loose upper bound, and moving to ground truth changes the answer "
+        "without changing a single response",
+    )
     parser.add_argument("--out", type=Path, default=Path("data/probe-results.jsonl"))
     args = parser.parse_args()
 
@@ -78,6 +87,18 @@ def main() -> None:
         probes = selected
     if not probes:
         raise SystemExit(f"no probes in {args.probes}")
+
+    # Round-robin across kinds. The battery is written grouped by kind, and a
+    # run that stops early -- a rate limit, a Ctrl-C -- would then have spent
+    # everything on whichever kind sorts first. The 450-probe run died 102
+    # probes into `legal_moves` and returned 12 of each of the other two.
+    by_kind: dict[str, list] = defaultdict(list)
+    for probe in probes:
+        by_kind[probe.kind].append(probe)
+    interleaved: list = []
+    for row in zip_longest(*(by_kind[kind] for kind in sorted(by_kind))):
+        interleaved.extend(probe for probe in row if probe is not None)
+    probes = interleaved
 
     usage = Usage()
     if args.backend == "claude-cli":
@@ -107,9 +128,23 @@ def main() -> None:
         prompt = probe.prompt()
         cached = cache.get(args.model, variant, prompt)
         if cached is None:
+            if args.cached_only:
+                return None
             cached = complete(prompt)
             cache.put(args.model, variant, prompt, cached)
         return score(probe, cached)
+
+    def run_safely(probe):
+        """One failed probe must not throw away the whole run.
+
+        Only successful answers are cached, so a re-run retries exactly the
+        failures and replays everything else for free -- which is the intended
+        recovery path when a long run trips a rate limit.
+        """
+        try:
+            return run(probe)
+        except Exception as error:  # noqa: BLE001 - counted, reported in bulk
+            return {"probe_id": probe.probe_id, "kind": probe.kind, "error": repr(error)}
 
     knobs = (
         "harness defaults"
@@ -117,8 +152,24 @@ def main() -> None:
         else f"effort={args.effort}, thinking={args.thinking}"
     )
     print(f"scoring {len(probes)} probes on {args.model} via {args.backend} ({knobs})")
+    graded: list[dict] = []
+    step = max(1, len(probes) // 20)
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        results = list(pool.map(run, probes))
+        for done, result in enumerate(pool.map(run_safely, probes), start=1):
+            if result is None:
+                continue  # --cached-only: not answered yet, skip silently
+            graded.append(result)
+            if done % step == 0 or done == len(probes):
+                failed = sum(1 for r in graded if "error" in r)
+                print(f"  {done}/{len(probes)} ({failed} failed)", flush=True)
+
+    failures = [r for r in graded if "error" in r]
+    results = [r for r in graded if "error" not in r]
+    if failures:
+        print(f"\n{len(failures)} probes failed, e.g. {failures[0]['error'][:200]}")
+        print("re-run the same command to retry only those (successes are cached)")
+    if not results:
+        raise SystemExit("every probe failed")
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w", encoding="utf-8") as stream:

@@ -154,6 +154,13 @@ class BotWeights:
     # to 6. Both went in together and may pull opposite ways, so it is a weight
     # too -- the metric and its rescaling need separating.
     eval_horizon: float = 6.0
+    # 1 = also run `OpponentKnowledge.eliminate_dead_ranks`, which counts the
+    # casualty record and drops ranks it proves extinct from every belief set;
+    # 0 = per-square battle constraints only, the deduction as it has always
+    # been. A weight for the same reason as `use_move_distance`: `compare()`
+    # varies weights, not code, so a plain `if` would apply to both sides and
+    # cancel. Ships at 0 until it has a paired p-value (D027).
+    use_rank_elimination: float = 0.0
 
     @classmethod
     def load(cls, path: str | Path) -> "BotWeights":

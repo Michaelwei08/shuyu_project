@@ -22,10 +22,15 @@ from junqi.types import Owner, PieceKind, Position
 class BeliefTracker:
     """Folds the public move log into a per-square set of possible ranks."""
 
-    def __init__(self, owner: Owner) -> None:
+    def __init__(self, owner: Owner, eliminate_dead_ranks: bool = False) -> None:
         self.owner = owner
         self.knowledge = OpponentKnowledge(owner)
         self.processed_records = 0
+        #: Mirrors `BotWeights.use_rank_elimination`. Default off so the probe
+        #: labels keep matching what the shipped bot actually deduces -- turning
+        #: it on here without turning it on in the engine would silently make
+        #: the battery measure a bot that does not exist.
+        self.eliminate_dead_ranks = eliminate_dead_ranks
 
     def update(self, game: Game) -> dict[Position, frozenset[PieceKind]]:
         """Consume any new records and return the current belief."""
@@ -39,6 +44,9 @@ class BeliefTracker:
             if piece.owner == self.owner.other
         }
         self.knowledge.forget_missing(opponent_positions)
+
+        if self.eliminate_dead_ranks:
+            self.knowledge.eliminate_dead_ranks()
 
         if commander_dead(game, self.owner.other):
             # Their commander is gone, so no surviving piece can be one.

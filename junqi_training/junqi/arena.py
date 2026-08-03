@@ -55,7 +55,7 @@ SHAPE_MATERIAL = 0.04
 
 
 def make_opening(
-    seed: int, screen_caps: dict[Owner, int | None] | None = None
+    seed: int, deployments: dict[Owner, int | str | None] | None = None
 ) -> dict[Position, Piece]:
     """Both armies deployed from the seed alone, so openings are comparable.
 
@@ -63,22 +63,23 @@ def make_opening(
     process, which would make openings differ between worker processes and
     quietly destroy the paired design.
 
-    ``screen_caps`` optionally overrides how many mines each side may put on
-    its flag headquarters' neighbours. It is the one deployment knob the paired
-    harness can vary, and it stays a plain int per side so a `Job` remains
-    picklable and every worker rebuilds the identical board.
+    ``deployments`` optionally names a :class:`~junqi.deployment.DeploymentFamily`
+    per side, or gives a bare screen cap (the older interface). It is the one
+    non-weight knob the paired harness can vary, and it stays a plain int or str
+    per side so a `Job` remains picklable and every worker rebuilds the
+    identical board.
     """
     rng = random.Random(seed * 2_654_435_761 + 12_345)
-    caps = screen_caps or {}
+    families = deployments or {}
     # One stream per side. A shared stream would make the number of draws the
-    # bot's deployment consumes depend on its screen cap, which would silently
+    # bot's deployment consumes depend on its family, which would silently
     # change the *human's* army too -- and then a capped-vs-sealed comparison
     # would be measuring a different opponent as well as a different screen.
     streams = {owner: random.Random(rng.randrange(2**32)) for owner in Owner}
     board: dict[Position, Piece] = {}
     for owner in (Owner.BOT, Owner.HUMAN):
         board.update(
-            strategic_deployment(owner, streams[owner], screen_cap=caps.get(owner))
+            strategic_deployment(owner, streams[owner], family=families.get(owner))
         )
     return board
 
@@ -94,11 +95,12 @@ class Job:
     opponent: AgentSpec
     seed: int
     subject_side: int  # Owner value the candidate plays
-    #: Mines the *subject* may seal its flag headquarters with. `None` uses the
-    #: default policy. Only the subject's side varies, so a candidate and an
-    #: incumbent still face byte-identical opposing armies on the same seed and
-    #: the comparison stays paired.
-    subject_screen_cap: int | None = None
+    #: The *subject's* deployment: a `DeploymentFamily` name, a bare screen cap
+    #: (the older interface), or `None` for the default policy. Only the
+    #: subject's side varies, so a candidate and an incumbent still face
+    #: byte-identical opposing armies on the same seed and the comparison stays
+    #: paired.
+    subject_deployment: int | str | None = None
     #: The subject's `(samples, beam_width, reply_width)`. `None` means
     #: `DEFAULT_SEARCH`, which is what every measurement before 2026-08-01 used.
     #: A plain tuple so `Job` stays picklable and hashable.
@@ -109,6 +111,11 @@ class Job:
     #: rather than only an opponent, without inverting every shaping term by
     #: hand at the call site.
     subject_spec: AgentSpec | None = None
+    #: The *opponent's* deployment. Varying this breaks the pairing on purpose:
+    #: it is how the deployment stage game gets its payoff matrix, where the
+    #: whole question is what family i scores against family j. Leave it `None`
+    #: for every paired comparison.
+    opponent_deployment: int | str | None = None
 
 
 @dataclass(frozen=True)
@@ -164,7 +171,13 @@ def _material_margin(game: Game, side: Owner) -> float:
 def play_match(job: Job) -> MatchResult:
     subject_side = Owner(job.subject_side)
     game = Game(
-        board=make_opening(job.seed, {subject_side: job.subject_screen_cap}),
+        board=make_opening(
+            job.seed,
+            {
+                subject_side: job.subject_deployment,
+                subject_side.other: job.opponent_deployment,
+            },
+        ),
         turn=Owner(job.seed % 2),
     )
     opponent_weights = (
@@ -246,9 +259,10 @@ def build_jobs(
     weights: BotWeights,
     pool: Pool,
     seeds: list[int],
-    subject_screen_cap: int | None = None,
+    subject_deployment: int | str | None = None,
     subject_search: tuple[int, int, int] | None = None,
     subject_spec: AgentSpec | None = None,
+    opponent_deployment: int | str | None = None,
 ) -> list[Job]:
     """Every seed against every opponent, both colours -- the paired design."""
     return [
@@ -257,9 +271,10 @@ def build_jobs(
             spec,
             seed,
             side,
-            subject_screen_cap,
+            subject_deployment,
             subject_search,
             subject_spec,
+            opponent_deployment,
         )
         for seed in seeds
         for spec in pool.specs
@@ -424,13 +439,20 @@ def evaluate(
     pool: Pool,
     seeds: list[int],
     workers: int | None = None,
-    subject_screen_cap: int | None = None,
+    subject_deployment: int | str | None = None,
     subject_search: tuple[int, int, int] | None = None,
     subject_spec: AgentSpec | None = None,
+    opponent_deployment: int | str | None = None,
 ) -> PoolReport:
     played = run_jobs(
         build_jobs(
-            weights, pool, seeds, subject_screen_cap, subject_search, subject_spec
+            weights,
+            pool,
+            seeds,
+            subject_deployment,
+            subject_search,
+            subject_spec,
+            opponent_deployment,
         ),
         workers,
     )
@@ -476,13 +498,13 @@ def compare(
     pool: Pool,
     seeds: list[int],
     workers: int | None = None,
-    candidate_screen_cap: int | None = None,
-    incumbent_screen_cap: int | None = None,
+    candidate_deployment: int | str | None = None,
+    incumbent_deployment: int | str | None = None,
     search: tuple[int, int, int] | None = None,
 ) -> Comparison:
     """Run both weight sets over an identical job list and pair the outcomes.
 
-    The two ``screen_cap`` arguments are the one way a *non-weight* change can
+    The two ``deployment`` arguments are the one way a *non-weight* change can
     enter this comparison: they alter only the subject's own deployment, so the
     opposing army on a given seed is unchanged and the pairing survives.
 
@@ -491,10 +513,10 @@ def compare(
     not "is deeper better" -- the latter is not a paired question at all.
     """
     candidate_jobs = build_jobs(
-        candidate, pool, seeds, candidate_screen_cap, search
+        candidate, pool, seeds, candidate_deployment, search
     )
     incumbent_jobs = build_jobs(
-        incumbent, pool, seeds, incumbent_screen_cap, search
+        incumbent, pool, seeds, incumbent_deployment, search
     )
     combined = run_jobs(candidate_jobs + incumbent_jobs, workers)
     split = len(candidate_jobs)

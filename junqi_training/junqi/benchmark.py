@@ -81,6 +81,22 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--deployment",
+        type=str,
+        default=None,
+        help=(
+            "被测方使用的布阵族（见 junqi.deployment.FAMILIES）。"
+            "只改被测方自己的阵型，对手军队不变，配对依然成立。"
+            "--screen-cap 是它的旧接口，等价于一个只改雷数的临时族"
+        ),
+    )
+    parser.add_argument(
+        "--baseline-deployment",
+        type=str,
+        default=None,
+        help="对照模型的布阵族",
+    )
+    parser.add_argument(
         "--search",
         type=int,
         nargs=3,
@@ -117,6 +133,16 @@ def main() -> None:
     print(f"anchor: {anchor if anchor else 'NONE (opponents track the model)'}")
     print(f"pool: {len(pool)} opponents -> {[s.name for s in pool.specs]}")
 
+    # A named family wins over the older bare screen cap; passing neither keeps
+    # the shipped generator.
+    deployment = arguments.deployment or arguments.screen_cap
+    baseline_deployment = arguments.baseline_deployment or arguments.baseline_screen_cap
+    if deployment is not None or baseline_deployment is not None:
+        print(
+            f"deployment: subject={deployment or 'standard'} "
+            f"baseline={baseline_deployment or 'standard'}"
+        )
+
     search = tuple(arguments.search) if arguments.search else None
     if search:
         print(f"search budget: samples={search[0]} beam={search[1]} replies={search[2]}"
@@ -138,8 +164,8 @@ def main() -> None:
             pool,
             every_seed,
             arguments.workers,
-            candidate_screen_cap=arguments.screen_cap,
-            incumbent_screen_cap=arguments.baseline_screen_cap,
+            candidate_deployment=deployment,
+            incumbent_deployment=baseline_deployment,
             search=search,
         )
         print(f"\n=== {arguments.model.name} vs {arguments.baseline.name} ===")
@@ -157,7 +183,7 @@ def main() -> None:
     all_results = []
     for block, seeds in enumerate(blocks):
         report = evaluate(
-            weights, pool, seeds, arguments.workers, arguments.screen_cap, search
+            weights, pool, seeds, arguments.workers, deployment, search
         )
         all_results.extend(report.results)
         print(

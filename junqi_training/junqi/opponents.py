@@ -241,6 +241,8 @@ class SelectiveBot:
                 if piece.owner == owner.other
             }
         )
+        if self.heuristic.weights.use_rank_elimination:
+            self.knowledge.eliminate_dead_ranks()
 
     def _acceptable(
         self, game: Game, move: Move, player: Owner, targets: list[Position]

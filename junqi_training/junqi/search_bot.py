@@ -91,6 +91,8 @@ class SearchBot:
             if piece.owner == owner.other
         }
         self.knowledge.forget_missing(opponent_positions)
+        if self.weights.use_rank_elimination:
+            self.knowledge.eliminate_dead_ranks()
         if self._commander_dead(game, owner.other):
             # Their commander is gone, so no surviving piece can be one.
             self.knowledge.possible = {
