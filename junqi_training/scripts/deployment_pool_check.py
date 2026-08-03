@@ -102,6 +102,9 @@ def main() -> None:
         help="把 deployment_game 解出的均衡混合也加入候选",
     )
     arguments = parser.parse_args()
+    # Redirected to a file, stdout buffers in 8KB blocks and the results table
+    # stays invisible until the process exits.
+    sys.stdout.reconfigure(line_buffering=True)
     # No `--no-history`: `standard_pool` takes no history unless it is given
     # some, and the archived models predate the current coefficients, so they
     # would not be the opponents they were trained as.
@@ -112,14 +115,22 @@ def main() -> None:
         else [name for name in FAMILIES if name != BASELINE]
     )
     if arguments.from_matrix is not None:
+        if not arguments.from_matrix.exists():
+            raise SystemExit(
+                f"{arguments.from_matrix} does not exist yet.\n"
+                "`junqi.deployment_game` writes it after the games finish, and "
+                "the solve takes about another 40s. If its log's last line is "
+                "'N games in Ns', it is still working -- wait for "
+                "'written to ...'."
+            )
         saved = json.loads(arguments.from_matrix.read_text(encoding="utf-8"))
-        mix = ",".join(
+        mix = saved.get("mixture_argument") or "mix:" + ",".join(
             f"{name}={share:.4f}"
             for name, share in saved["equilibrium"].items()
             if share > 1e-4
         )
-        if len(saved["equilibrium"]) and mix:
-            candidates.append(f"mix:{mix}")
+        if mix != "mix:":
+            candidates.append(mix)
 
     weights = (
         BotWeights.load(arguments.model)

@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -294,17 +295,65 @@ def format_matrix(
     return "\n".join(lines)
 
 
+def mixture_argument(families: list[str], strategy: list[float]) -> str:
+    """The `--deployment mix:...` string that reproduces a solved strategy."""
+    return "mix:" + ",".join(
+        f"{name}={share:.4f}"
+        for name, share in zip(families, strategy)
+        if share > 1e-4
+    )
+
+
+def save(
+    path: Path,
+    families: list[str],
+    matrix: dict[tuple[str, str], float],
+    counts: dict[tuple[str, str], int],
+    strategy: list[float],
+    gap: float,
+) -> None:
+    """Persist the matrix and its solve.
+
+    Called *before* the bootstrap. The games cost eight minutes on the compute
+    box and the analysis after them costs forty seconds, so nothing in that
+    forty seconds may be able to lose them -- the same lesson as the replay
+    that a NameError threw away after the game was already won.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    off_diagonal = [count for (row, column), count in counts.items() if row != column]
+    path.write_text(
+        json.dumps(
+            {
+                "families": families,
+                "games_per_cell": min(off_diagonal),
+                "matrix": {
+                    f"{row}|{column}": value for (row, column), value in matrix.items()
+                },
+                "equilibrium": dict(zip(families, strategy)),
+                "exploitability": gap,
+                "mixture_argument": mixture_argument(families, strategy),
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
 def report(
     families: list[str],
     matrix: dict[tuple[str, str], float],
     counts: dict[tuple[str, str], int],
     design_effect: float = DESIGN_EFFECT,
+    out: Path | None = None,
 ) -> tuple[list[float], float]:
     """Print the matrix, the equilibrium, and how much of it survives noise."""
     print(format_matrix(families, matrix, counts))
 
     strategy = regret_matching(families, matrix)
     gap, responder = exploitability(families, matrix, strategy)
+    if out is not None:
+        save(out, families, matrix, counts, strategy, gap)
+        print(f"\nwritten to {out}")
     print("\nequilibrium mixture:")
     for name, share in sorted(zip(families, strategy), key=lambda item: -item[1]):
         if share > 1e-4:
@@ -316,24 +365,23 @@ def report(
         pure_gap, pure_responder = exploitability(families, matrix, pure)
         print(f"  pure {name:<12} {pure_gap:+.4f} (best response: {pure_responder})")
 
+    print(
+        f"\nbootstrapping the solve over cell noise "
+        f"(400 resamples, design effect {design_effect:.2f}) ..."
+    )
     means, low, high = bootstrap_equilibrium(
         families, matrix, counts, design_effect=design_effect
     )
-    print(
-        f"\nbootstrap over cell noise (400 resamples, design effect "
-        f"{design_effect:.2f}, 5th-95th percentile):"
-    )
+    print("5th-95th percentile share:")
     for name, mean, lower, upper in sorted(
         zip(families, means, low, high), key=lambda item: -item[1]
     ):
         print(f"  {name:<12} {mean:>7.1%}   [{lower:>6.1%}, {upper:>6.1%}]")
 
-    mix = ",".join(
-        f"{name}={share:.4f}"
-        for name, share in zip(families, strategy)
-        if share > 1e-4
+    print(
+        "\nvalidate it against the pool with:\n"
+        f"  --families \"{mixture_argument(families, strategy)}\""
     )
-    print(f"\nvalidate it against the pool with:\n  --deployment mix:{mix}")
     return strategy, gap
 
 
@@ -372,6 +420,12 @@ def main() -> None:
         help="同一开局下多局的相关性修正，用于自助区间（默认 1.26，实测值）",
     )
     arguments = parser.parse_args()
+    # Redirected to a file, stdout buffers in 8KB blocks, so everything printed
+    # after the last flushed progress line sits invisible until the process
+    # exits. `tail`ing the log then makes the analysis phase look like the end
+    # of the run -- which on 2026-08-03 got the next command launched forty
+    # seconds too early, against a file that did not exist yet.
+    sys.stdout.reconfigure(line_buffering=True)
 
     if arguments.analyse is not None:
         saved = json.loads(arguments.analyse.read_text(encoding="utf-8"))
@@ -403,26 +457,7 @@ def main() -> None:
         arguments.workers,
     )
     print()
-    strategy, gap = report(families, matrix, counts, arguments.design_effect)
-
-    arguments.out.parent.mkdir(parents=True, exist_ok=True)
-    off_diagonal = [count for (row, column), count in counts.items() if row != column]
-    arguments.out.write_text(
-        json.dumps(
-            {
-                "families": families,
-                "games_per_cell": min(off_diagonal),
-                "matrix": {
-                    f"{row}|{column}": value for (row, column), value in matrix.items()
-                },
-                "equilibrium": dict(zip(families, strategy)),
-                "exploitability": gap,
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    print(f"\nwritten to {arguments.out}")
+    report(families, matrix, counts, arguments.design_effect, out=arguments.out)
 
 
 if __name__ == "__main__":
