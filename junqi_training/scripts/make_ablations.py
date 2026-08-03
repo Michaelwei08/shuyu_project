@@ -77,6 +77,20 @@ def main() -> None:
     # 2.0 makes any expensive probe worse than not probing.
     for scale in (0.5, 1.0, 2.0):
         variants[f"entomb-{scale:g}"] = replace(shipped, eval_hq_entomb=scale)
+    # `reply_insight` has shipped at 0 since it was written and has never been
+    # measured. Unlike every other candidate here it is a *loud* change:
+    # divergence_check puts it at 85-94% of games with an SD of 0.55, against
+    # entombment's 11% and 0.15. So it is genuinely tried, and a 2400-game run
+    # can resolve it.
+    #
+    # 0 assumes the replier is blind to our ranks, and that assumption is
+    # measurably wrong: tracking `OpponentKnowledge` from the opponent's seat
+    # over 128 pool games, the mean belief about a surviving attacker of ours is
+    # ~4.4 of ~9 movable ranks and 13.1% are pinned to a single rank. That puts
+    # the empirically implied insight near 0.13-0.3, so 0.25 is the principled
+    # value and the other two bracket it.
+    for scale in (0.25, 0.5, 1.0):
+        variants[f"insight-{scale:g}"] = replace(shipped, reply_insight=scale)
     arguments.out.mkdir(parents=True, exist_ok=True)
     for name, weights in variants.items():
         destination = arguments.out / f"{name}.json"
