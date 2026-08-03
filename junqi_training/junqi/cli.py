@@ -15,8 +15,17 @@ from .deployment import (
 )
 from .game import Game
 from .search_bot import SearchBot
+from .opponents import OracleSearchBot
+from .web_export import fingerprint
 from .training import DEFAULT_MODEL
-from .types import Owner, PieceKind, SYMBOLS, parse_move, parse_position
+from .types import (
+    Owner,
+    PieceKind,
+    SYMBOLS,
+    format_position,
+    parse_move,
+    parse_position,
+)
 
 
 def render(game: Game) -> str:
@@ -86,6 +95,80 @@ def arrange_player(game: Game, rng: random.Random) -> bool:
             print(f"无法调整：{error}\n")
 
 
+
+#: Symbols for a disclosed board, matching the browser replay so one parser
+#: reads both.
+def _grid(board, rows: range, owner: Owner) -> list[str]:
+    from .board import CAMPS
+
+    lines = ["     A  B  C  D  E"]
+    for row in rows:
+        cells = []
+        for column in range(5):
+            square = (row, column)
+            piece = board.get(square)
+            if square in CAMPS:
+                cells.append(" ·")
+            elif piece is None:
+                cells.append("  ")
+            else:
+                cells.append(f" {SYMBOLS[piece.kind]}")
+        lines.append(f"{row + 1:>3}{''.join(cells)}")
+    return lines
+
+
+def format_replay(game: Game, opening: dict, label: str, weights: BotWeights) -> str:
+    """A pasteable trajectory in the browser's replay format.
+
+    Deliberately byte-compatible with `web/lib/replay.ts` output so the same
+    analysis reads either. Both openings are disclosed only here, at the end --
+    the point of a replay is to be readable *after* the game.
+    """
+    if game.winner == Owner.HUMAN:
+        result = f"human wins at ply {game.move_count}"
+    elif game.winner == Owner.BOT:
+        result = f"bot wins at ply {game.move_count}"
+    else:
+        result = f"draw at ply {game.move_count}"
+
+    out = [
+        "JQ/60 replay",
+        f"result:     {result}",
+        f"difficulty: {label}",
+        "engine:     python cli",
+        f"weights:    {fingerprint(weights)}",
+        "",
+        "bot opening (rows 1-6, disclosed now the game is over):",
+        *_grid(opening, range(0, 6), Owner.BOT),
+        "",
+        "your opening (rows 7-12):",
+        *_grid(opening, range(6, 12), Owner.HUMAN),
+        "",
+        "moves:",
+    ]
+    for index, record in enumerate(game.records, start=1):
+        side = "Y" if record.attacker.owner == Owner.HUMAN else "B"
+        notes = []
+        if record.defender is not None:
+            if record.defender.kind == PieceKind.FLAG:
+                notes.append("军旗被夺")
+            elif record.outcome > 0:
+                notes.append("攻方胜")
+            elif record.outcome < 0:
+                notes.append("守方胜")
+            else:
+                notes.append("同归于尽")
+        move = record.move
+        text = (
+            f"{index:>3} {side}  {move}  "
+            f"{format_position(move.src)} → {format_position(move.dst)}"
+        )
+        if notes:
+            text += "  · " + "  · ".join(notes)
+        out.append(text)
+    return "\n".join(out) + "\n"
+
+
 def play(
     seed: int | None,
     model_path: Path,
@@ -93,11 +176,24 @@ def play(
     search_samples: int = 6,
     deployment_model: Path | None = None,
     search_replies: int = 4,
+    opponent: str = "search",
+    replay_path: Path | None = None,
 ) -> None:
     weights = BotWeights.load(model_path) if model_path.exists() else BotWeights()
-    bot = SearchBot(
-        weights, seed=seed, samples=search_samples, reply_width=search_replies
-    )
+    if opponent == "search":
+        bot = SearchBot(
+            weights, seed=seed, samples=search_samples, reply_width=search_replies
+        )
+    else:
+        # The cheating opponent. It reads every one of your hidden ranks; the
+        # point is to find out how much that is actually worth against a person.
+        bot = OracleSearchBot(
+            weights,
+            seed=seed,
+            samples=search_samples,
+            reply_width=search_replies,
+            gamma=1.0 if opponent == "oracle" else 0.5,
+        )
     rng = random.Random(seed)
     bot_deployment = (
         load_deployment(deployment_model)
@@ -105,6 +201,11 @@ def play(
         else strategic_deployment(Owner.BOT, rng)
     )
     game = Game.new(seed=seed, bot_deployment=bot_deployment)
+    if opponent != "search":
+        print(
+            f"*** {opponent.upper()}: this opponent SEES YOUR HIDDEN RANKS. "
+            f"It is a measuring device, not the shipped bot. ***"
+        )
     print("军棋单人版：你执南方（<棋>），Bot 执北方（[?]）。")
     if not auto_deploy and not arrange_player(game, rng):
         return
@@ -140,6 +241,14 @@ def play(
     else:
         print("\n和棋。")
 
+    if replay_path is not None:
+        replay_path.write_text(
+            format_replay(game, opening, opponent, weights),
+            encoding="utf-8",
+            newline="\n",
+        )
+        print(f"\n棋谱已写入 {replay_path}")
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="军棋单人对局")
@@ -168,6 +277,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="固定的 Bot 初始布局模型路径；默认每局重新生成战术布阵",
     )
+    parser.add_argument(
+        "--opponent",
+        choices=("search", "oracle", "oracle-half"),
+        default="search",
+        help=(
+            "对手类型。search 是正常出厂 Bot；"
+            "oracle **会看穿你的全部暗子**（同样的权重，只是不再采样猜测），"
+            "oracle-half 只看穿一半。后两者是测量工具，不是会发布的对手"
+        ),
+    )
+    parser.add_argument(
+        "--replay",
+        type=Path,
+        default=None,
+        help="终局后把棋谱写到这个文件，格式与网页版一致，可直接贴出来分析",
+    )
     return parser
 
 
@@ -184,6 +309,8 @@ def main() -> None:
         arguments.search_samples,
         arguments.deployment_model,
         arguments.search_replies,
+        arguments.opponent,
+        arguments.replay,
     )
 
 

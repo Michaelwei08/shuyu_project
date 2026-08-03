@@ -292,6 +292,37 @@ class AgentTests(unittest.TestCase):
         self.assertTrue(all(r.proposal_legal for r in agent.transcript))
         self.assertTrue(all(r.source == "model" for r in agent.transcript))
 
+    def test_two_settings_do_not_share_cache_entries(self) -> None:
+        """A re-run at a new effort must not replay the old effort's answers.
+
+        The cache namespace has to carry every knob that changes the reply, not
+        just the scaffold -- otherwise a sweep over `effort` would return the
+        first setting's moves for all of them and print a spotless null result.
+        """
+        with tempfile.TemporaryDirectory() as folder:
+            cache = PromptCache(Path(folder))
+            game = Game(board=make_opening(16), turn=Owner.HUMAN)
+            legal = game.legal_moves(Owner.HUMAN)
+            first, second = str(legal[0]), str(legal[1])
+
+            def agent_for(namespace: str, reply: str) -> LLMAgent:
+                return LLMAgent(
+                    scripted_completer([reply]),
+                    model="stub",
+                    scaffold=SCAFFOLDS["legal"],
+                    cache=cache,
+                    cache_namespace=namespace,
+                    seed=1,
+                )
+
+            low = agent_for("legal/low/adaptive", first)
+            self.assertEqual(str(low.choose_move(game)), first)
+            high = agent_for("legal/high/adaptive", second)
+            self.assertEqual(str(high.choose_move(game)), second)
+            # Same namespace replays rather than re-asking.
+            again = agent_for("legal/low/adaptive", second)
+            self.assertEqual(str(again.choose_move(game)), first)
+
     def test_the_cache_makes_a_replay_free(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             cache = PromptCache(Path(folder))

@@ -118,6 +118,7 @@ class LLMAgent:
         max_retries: int = 2,
         seed: int | None = None,
         transcript: list[TurnRecord] | None = None,
+        cache_namespace: str | None = None,
     ) -> None:
         if repair not in ("fallback", "retry"):
             raise ValueError(
@@ -128,6 +129,13 @@ class LLMAgent:
         self.model = model
         self.scaffold = scaffold
         self.cache = cache if cache is not None else NullCache()
+        #: Cache key namespace. Must capture *everything* that changes the
+        #: reply, not just the scaffold: effort and thinking do too, and a run
+        #: at a new effort that replayed the old answers would look like a
+        #: perfectly clean null result.
+        self.cache_namespace = (
+            scaffold.name if cache_namespace is None else cache_namespace
+        )
         self.repair = repair
         self.max_retries = max_retries
         self.rng = random.Random(seed)
@@ -137,11 +145,11 @@ class LLMAgent:
         self.tracker: BeliefTracker | None = None
 
     def _ask(self, prompt: str, variant: int) -> str:
-        cached = self.cache.get(self.model, self.scaffold.name, prompt, variant)
+        cached = self.cache.get(self.model, self.cache_namespace, prompt, variant)
         if cached is not None:
             return cached
         response = self.complete(prompt)
-        self.cache.put(self.model, self.scaffold.name, prompt, response, variant)
+        self.cache.put(self.model, self.cache_namespace, prompt, response, variant)
         return response
 
     def choose_move(self, game: Game, owner: Owner | None = None) -> Move:
@@ -248,6 +256,17 @@ COMPLETERS: dict[str, Callable[[dict[str, str]], Completer]] = {
 
 
 def make_completer(name: str, options: dict[str, str]) -> Completer:
+    if name == "claude-cli" and name not in COMPLETERS:
+        from .cli_completer import register as register_cli
+
+        register_cli()
+    if name == "anthropic" and name not in COMPLETERS:
+        # Registered on demand so importing this module never pulls in the SDK,
+        # and so a worker process that only unpickles an AgentSpec still
+        # resolves the backend without the caller remembering to register it.
+        from .anthropic_completer import register
+
+        register()
     if name not in COMPLETERS:
         raise ValueError(
             f"unknown completer {name!r}; available: {sorted(COMPLETERS)}"
@@ -268,11 +287,14 @@ def build_agent(spec: Any, _weights: Any, seed: int) -> LLMAgent:
     if scaffold_name not in SCAFFOLDS:
         raise ValueError(f"unknown scaffold {scaffold_name!r}")
     cache_root = options.get("cache")
+    effort = options.get("effort", "-")
+    thinking = options.get("thinking", "-")
     return LLMAgent(
         make_completer(options.get("completer", "random-legal"), options),
         model=options.get("model", "stub"),
         scaffold=SCAFFOLDS[scaffold_name],
         cache=PromptCache(cache_root) if cache_root else NullCache(),
+        cache_namespace=f"{scaffold_name}/{effort}/{thinking}",
         repair=options.get("repair", "fallback"),
         max_retries=int(options.get("max_retries", "2")),
         seed=seed,
