@@ -210,6 +210,9 @@ def play(
     print("军棋单人版：你执南方（<棋>），Bot 执北方（[?]）。")
     if not auto_deploy and not arrange_player(game, rng):
         return
+    # Snapshot AFTER arranging, so the replay discloses the board actually
+    # played rather than the pre-swap one.
+    opening = dict(game.board)
     print("输入 A10-A9 走棋；输入 moves 查看合法走法；输入 quit 退出。\n")
 
     while not game.over:
