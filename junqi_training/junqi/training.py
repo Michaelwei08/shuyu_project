@@ -23,7 +23,7 @@ from pathlib import Path
 
 from .arena import archive, compare, evaluate, seeds_for
 from .bot import BotWeights
-from .opponents import Pool, discover_history, standard_pool
+from .opponents import Pool, discover_exploiters, discover_history, standard_pool
 
 DEFAULT_MODEL = Path("models/bot_weights.json")
 DEFAULT_ARCHIVE = Path("models/history")
@@ -113,6 +113,7 @@ def train(
     archive_dir: Path,
     start: BotWeights | None = None,
     pool: Pool | None = None,
+    anchor: Path | None = None,
 ) -> BotWeights:
     """Evolve weights against ``pool``, defaulting to the standard judging pool.
 
@@ -127,13 +128,21 @@ def train(
     # Opponents must be identical for candidate and incumbent, so pin the
     # weight-driven ones to a fixed anchor rather than letting them be built
     # from whichever model is being measured.
-    anchor = output.parent / "defaults.json"
+    # Passed in, not derived from `output`. Deriving it meant any caller
+    # writing to a subdirectory -- `scripts/exploiter.py` does -- silently
+    # created a SECOND anchor there and trained against it, which is the
+    # yardstick-drift failure `scripts/rebuild_anchor.py` exists to prevent,
+    # arriving by a different door.
+    if anchor is None:
+        anchor = output.parent / "defaults.json"
     if not anchor.exists():
         BotWeights().save(anchor)
     fixed_pool = pool is not None
     if pool is None:
         pool = standard_pool(
-            history=discover_history(archive_dir), anchor=str(anchor)
+            history=discover_history(archive_dir),
+            anchor=str(anchor),
+            exploiters=discover_exploiters(output.parent / "exploiters"),
         )
     scale = 0.25
     accepted = 0
@@ -168,7 +177,9 @@ def train(
                 # A caller-supplied pool is a deliberate choice and must not
                 # be silently replaced by the standard one.
                 pool = standard_pool(
-                    history=discover_history(archive_dir), anchor=str(anchor)
+                    history=discover_history(archive_dir),
+                    anchor=str(anchor),
+                    exploiters=discover_exploiters(output.parent / "exploiters"),
                 )
             print(f"  ACCEPTED -> {output} (archived as {label})", flush=True)
             # 1/5 success rule: widen after a hit, shrink while missing.

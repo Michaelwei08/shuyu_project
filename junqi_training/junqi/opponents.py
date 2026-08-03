@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field, replace
+from importlib import import_module
 from pathlib import Path
 
 from .bot import (
@@ -82,6 +83,67 @@ class HQRushBot:
                 best_score, best = score, move
         assert best is not None
         return best
+
+
+class OracleSearchBot(SearchBot):
+    """A deliberately cheating opponent: it reads every hidden rank.
+
+    **Never ships, never plays a human.** It exists because the judging pool has
+    no ceiling: `search-mid` tops out at about 60% against the subject and *is*
+    the subject's own policy class carrying anchor weights, so the pool cannot
+    grade anything past parity-with-self. An omniscient opponent is structurally
+    different in the one dimension this game is about, and it is free to build.
+
+    This does not violate the hidden-rank invariant. That invariant binds the
+    *subject* -- the agent that ships. Using privileged information in a
+    training or evaluation opponent is standard practice; Suphx's oracle agent
+    is the same device.
+
+    Measured at equal weights and equal search widths, the oracle side wins
+    0.604 +/- 0.023 over 400 games, so perfect information is worth about +10
+    points of win rate here. That makes it hard but beatable -- the right shape
+    for a pool ceiling rather than an unwinnable wall.
+
+    `gamma` below 1 reveals only that fraction of the hidden pieces, which is
+    Suphx's dropout schedule and gives a dial between the belief bot and full
+    clairvoyance.
+    """
+
+    def __init__(
+        self,
+        weights: BotWeights | None = None,
+        seed: int | None = None,
+        samples: int = 6,
+        beam_width: int = 10,
+        reply_width: int = 4,
+        gamma: float = 1.0,
+    ) -> None:
+        # At gamma 1 every sampled world is the same world, so N samples is N
+        # identical rollouts. Collapsing to one makes the strongest opponent in
+        # the pool also the cheapest.
+        super().__init__(
+            weights,
+            seed,
+            1 if gamma >= 1.0 else samples,
+            beam_width,
+            reply_width,
+        )
+        self.gamma = gamma
+
+    def _determinize(
+        self, game: Game, hidden_owner: Owner, rng: random.Random
+    ) -> Game:
+        if self.gamma >= 1.0:
+            return game.clone()
+        sampled = super()._determinize(game, hidden_owner, rng)
+        for position, piece in game.board.items():
+            if (
+                piece.owner == hidden_owner
+                and not piece.revealed
+                and rng.random() < self.gamma
+            ):
+                sampled.board[position] = piece
+        return sampled
 
 
 class SelectiveBot:
@@ -211,7 +273,7 @@ class AgentSpec:
     """A picklable recipe for one player."""
 
     name: str
-    kind: str  # "random" | "heuristic" | "search" | "hqrush" | "selective"
+    kind: str  # random | heuristic | search | hqrush | selective | oracle
     weights_path: str | None = None
     weights_style: str = "as_is"  # as_is | material | defensive | engineer
     samples: int = 3
@@ -221,8 +283,24 @@ class AgentSpec:
     noise: float | None = None
     #: Minimum expected battle outcome a `selective` agent will attack on.
     threshold: float = 0.05
+    #: Fraction of hidden ranks an `oracle` agent sees. 1.0 is full
+    #: clairvoyance; lower values are Suphx's dropout schedule.
+    gamma: float = 1.0
+    #: ``"module:attribute"`` naming a factory ``(spec, weights, seed) -> player``.
+    #: Resolved by import *inside the worker*, so an agent that needs a network
+    #: client or a third-party SDK can join the pool without `junqi` importing
+    #: one -- this package is deliberately stdlib-only. A plain string keeps the
+    #: spec picklable, which a callable would not be.
+    builder: str | None = None
+    #: Configuration for an external builder, as a tuple of pairs so the spec
+    #: stays frozen and hashable.
+    options: tuple[tuple[str, str], ...] = ()
 
     def build(self, weights: BotWeights, seed: int):
+        if self.builder is not None:
+            module_name, _, attribute = self.builder.partition(":")
+            factory = getattr(import_module(module_name), attribute)
+            return factory(self, weights, seed)
         if self.kind == "random":
             return RandomBot(seed=seed)
         if self.kind == "hqrush":
@@ -232,6 +310,15 @@ class AgentSpec:
             shaped = replace(shaped, noise=self.noise)
         if self.kind == "selective":
             return SelectiveBot(shaped, seed=seed, threshold=self.threshold)
+        if self.kind == "oracle":
+            return OracleSearchBot(
+                shaped,
+                seed=seed,
+                samples=self.samples,
+                beam_width=self.beam_width,
+                reply_width=self.reply_width,
+                gamma=self.gamma,
+            )
         if self.kind == "heuristic":
             return HeuristicBot(shaped, seed=seed)
         if self.kind == "search":
@@ -265,6 +352,7 @@ def standard_pool(
     stable: str | None = None,
     history: list[str] | None = None,
     anchor: str | None = None,
+    exploiters: list[str] | None = None,
 ) -> Pool:
     """The default judging pool.
 
@@ -321,10 +409,33 @@ def standard_pool(
             beam_width=10,
             reply_width=4,
         ),
+        # The pool's ceiling. Every other weight-driven member is the subject's
+        # own policy class, so without this the pool cannot grade anything past
+        # parity-with-self -- `search-mid` topped out near 60%. Cheating is the
+        # point, and it is also cheap: at gamma 1 one sampled world suffices.
+        AgentSpec("oracle", "oracle", weights_path=anchor, beam_width=10),
+        AgentSpec(
+            "oracle-half", "oracle", weights_path=anchor, samples=4,
+            beam_width=10, gamma=0.5,
+        ),
     ]
     if stable is not None:
         specs.append(
             AgentSpec("stable", "search", weights_path=stable, samples=3, beam_width=8)
+        )
+    # Best-response agents trained against one pool member (scripts/exploiter.py).
+    # They are the other half of the ceiling problem: an oracle is stronger in a
+    # way no human is, an exploiter is stronger in the way a *student of this bot*
+    # would be.
+    for index, path in enumerate(exploiters or []):
+        specs.append(
+            AgentSpec(
+                f"exploiter-{Path(path).stem}",
+                "search",
+                weights_path=path,
+                samples=3,
+                beam_width=8,
+            )
         )
     for index, path in enumerate(history or []):
         specs.append(
@@ -337,6 +448,17 @@ def standard_pool(
             )
         )
     return Pool(specs)
+
+
+def discover_exploiters(directory: str | Path, limit: int = 4) -> list[str]:
+    """Accepted best-response models, newest first."""
+    folder = Path(directory)
+    if not folder.exists():
+        return []
+    found = sorted(
+        folder.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True
+    )
+    return [str(path) for path in found[:limit]]
 
 
 def discover_history(directory: str | Path, limit: int = 3) -> list[str]:

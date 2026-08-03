@@ -14,7 +14,7 @@ junqi-train = "junqi.training:main"
 junqi-train-layout = "junqi.layout_training:main"
 
 [tool.setuptools.packages.find]
-include = ["junqi*"]
+include = ["junqi*", "llmarena*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -28,8 +28,8 @@ Pick one and pin it for the session, then check it before anything else:
     $PY -c 'import sys; print(sys.version)'
     cd junqi_training && $PY -m unittest discover -s tests
 
-Expect 42 tests, 1 skipped (the web-weights sync check; `web/` is not shipped
-here). Pick a worker count too -- this is CPU-bound, and on a dedicated box
+One test skips (the web-weights sync check; `web/` is not shipped here);
+everything else must pass. Pick a worker count too -- this is CPU-bound, and on a dedicated box
 most cores is right:
 
     W=$(( $(nproc) - 2 ))
@@ -92,10 +92,10 @@ now explicit and a test fails if a new one is added without rerunning:
 but 26 share each opening. Measured design effect 1.26 over 806 games. Multiply
 any reported SE by 1.12. It changes none of the 2026-08-01 conclusions.
 
-## The learned leaf evaluation -- ADOPTED
+## The learned leaf evaluation -- NOT adopted, ships at 0
 
 junqi/value.py fits the leaf evaluation to self-play outcomes: 96 parameters,
-stdlib SGD, weighted by eval_value_scale, now shipping at 15.0.
+stdlib SGD, weighted by eval_value_scale. How it got there:
 
     500 games,  n=400,  corrupt anchor    -0.0013 +/- 0.0318   nothing
     2000 games, n=400,  corrupt anchor    +0.0631 +/- 0.0303   screen only
@@ -159,6 +159,37 @@ Only `models/` is meant to travel back. After the run, from `military/`:
 
     python scripts/sync_remote.py pull
     python -m junqi.web_export
+
+## The pool now has a ceiling, and it cheats
+
+`search-mid` topped out near 60% against the subject and IS the subject's own
+policy class with anchor weights, so the pool could not grade anything past
+parity-with-self. Two attempts to fix that; only one worked.
+
+WORKED -- `OracleSearchBot`, same weights but it reads every hidden rank.
+Subject wins only 40.6% against it over 240 games, so it is a real ceiling
+rather than another near-copy. It is also the CHEAPEST member: at gamma 1 every
+sampled world is the same world, so samples collapses to 1. `oracle-half`
+(gamma 0.5) is Suphx's dropout schedule and sits between the two. This does not
+breach the hidden-rank invariant, which binds the SUBJECT -- the agent that
+ships; a test asserts no shipped module references it.
+
+FAILED -- the best-response exploiter. `scripts/exploiter.py` aims the ordinary
+training loop at a single opponent, which is what a best-response oracle is.
+Against search-mid: **0 of 10 generations accepted, +0.0%** (62.0% before,
+62.0% after, 600 games each way). That is worth more than it looks. Coefficient
+tuning was already known not to improve the AGGREGATE; this says the weight
+space cannot even be bent to beat ONE FIXED OPPONENT better. The 34-dimensional
+linear policy class is saturated, and "train harder" is closed as an avenue.
+
+Two bugs that failure exposed, both fixed, both silent:
+* `train` saves the unchanged incumbent when nothing is accepted, so the banked
+  exploiter was a BYTE-IDENTICAL COPY OF THE SUBJECT -- and discovery would have
+  added the bot to its own judging pool. exploiter.py now deletes rather than
+  banks a model that did not move or that misses --min-gain.
+* `train` derived its anchor from `output.parent`, so writing into
+  models/exploiters/ forked a SECOND defaults.json there and trained against it.
+  The anchor is now passed explicitly.
 
 Numbers from before 2026-08-01 are not comparable to numbers after it: the
 scoring function changed, both sides of every pool game changed with it, and

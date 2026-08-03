@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .arena import DEFAULT_SEARCH, PoolReport, compare, evaluate, seeds_for
 from .bot import BotWeights
-from .opponents import discover_history, standard_pool
+from .opponents import discover_exploiters, discover_history, standard_pool
 
 
 DEFAULT_ANCHOR = Path("models/defaults.json")
@@ -108,7 +108,12 @@ def main() -> None:
     anchor = arguments.anchor
     if anchor is None and DEFAULT_ANCHOR.exists():
         anchor = DEFAULT_ANCHOR
-    pool = standard_pool(history=history, anchor=str(anchor) if anchor else None)
+    exploiters = discover_exploiters(Path("models/exploiters"))
+    pool = standard_pool(
+        history=history,
+        anchor=str(anchor) if anchor else None,
+        exploiters=exploiters,
+    )
     print(f"anchor: {anchor if anchor else 'NONE (opponents track the model)'}")
     print(f"pool: {len(pool)} opponents -> {[s.name for s in pool.specs]}")
 

@@ -10,7 +10,13 @@ from junqi.arena import compare, make_opening
 from junqi.board import CAMPS, HEADQUARTERS
 from junqi.bot import PRIOR_BATTLE, BotWeights, HeuristicBot
 from junqi.cli import render
-from junqi.opponents import AgentSpec, Pool, SelectiveBot, standard_pool
+from junqi.opponents import (
+    AgentSpec,
+    OracleSearchBot,
+    Pool,
+    SelectiveBot,
+    standard_pool,
+)
 from junqi.web_export import parse as parse_web_weights
 from junqi.deployment import (
     SCREEN_MINE_CAP,
@@ -798,6 +804,42 @@ class GameTests(unittest.TestCase):
             ValueModel(weights=[0.0] * (WIDTH - 1)).save(path)
             with self.assertRaises(ValueError):
                 ValueModel.load(path)
+
+    def test_the_oracle_opponent_really_cheats_and_never_ships(self) -> None:
+        """The pool's ceiling, and the one agent allowed to read hidden ranks.
+
+        The hidden-rank invariant binds the *subject*, not the opponents it is
+        judged against -- Suphx uses the same device. So this asserts two things
+        at once: that the oracle genuinely sees the true board (otherwise it is
+        not a ceiling), and that nothing exportable references it (otherwise the
+        invariant really is broken).
+        """
+        game = Game(board=make_opening(13), turn=Owner.BOT)
+        oracle = OracleSearchBot(BotWeights(), seed=1)
+        # Every sampled world is the truth, so one sample is all it needs.
+        self.assertEqual(oracle.samples, 1)
+        world = oracle._determinize(game, Owner.HUMAN, random.Random(0))
+        self.assertEqual(world.board, game.board)
+
+        # Half-strength reveals some but not all, and still yields a legal board.
+        partial = OracleSearchBot(BotWeights(), seed=1, gamma=0.5)
+        hidden = {
+            position
+            for position, piece in game.board.items()
+            if piece.owner == Owner.HUMAN and not piece.revealed
+        }
+        sampled = partial._determinize(game, Owner.HUMAN, random.Random(0))
+        exact = sum(1 for p in hidden if sampled.board[p] == game.board[p])
+        self.assertLess(exact, len(hidden), "gamma 0.5 revealed everything")
+        self.assertEqual(set(sampled.board), set(game.board))
+        self.assertIn(oracle.choose_move(game, Owner.BOT), game.legal_moves(Owner.BOT))
+
+        # It is a pool member only. Nothing that generates or runs a shipped
+        # engine may mention it.
+        root = Path(__file__).resolve().parents[1]
+        for name in ("junqi/search_bot.py", "junqi/bot.py", "junqi/web_export.py"):
+            source = (root / name).read_text(encoding="utf-8")
+            self.assertNotIn("Oracle", source, f"{name} references the cheating bot")
 
     def test_the_anchor_pins_every_coefficient(self) -> None:
         """The judging pool's yardstick must not move when a field is added.

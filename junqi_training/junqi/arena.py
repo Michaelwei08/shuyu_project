@@ -103,6 +103,12 @@ class Job:
     #: `DEFAULT_SEARCH`, which is what every measurement before 2026-08-01 used.
     #: A plain tuple so `Job` stays picklable and hashable.
     subject_search: tuple[int, int, int] | None = None
+    #: Play the subject seat with an arbitrary agent instead of a `SearchBot`.
+    #: `None` keeps the historical behaviour exactly. This exists so a player
+    #: that is not weight-driven -- an LLM, say -- can be the thing under test
+    #: rather than only an opponent, without inverting every shaping term by
+    #: hand at the call site.
+    subject_spec: AgentSpec | None = None
 
 
 @dataclass(frozen=True)
@@ -168,14 +174,23 @@ def play_match(job: Job) -> MatchResult:
     )
     from .search_bot import SearchBot
 
-    samples, beam_width, reply_width = job.subject_search or DEFAULT_SEARCH
-    subject = SearchBot(
-        job.weights,
-        seed=job.seed * 2 + int(subject_side),
-        samples=samples,
-        beam_width=beam_width,
-        reply_width=reply_width,
-    )
+    subject_seed = job.seed * 2 + int(subject_side)
+    if job.subject_spec is not None:
+        subject_weights = (
+            _load_weights(job.subject_spec.weights_path)
+            if job.subject_spec.weights_path
+            else job.weights
+        )
+        subject = job.subject_spec.build(subject_weights, seed=subject_seed)
+    else:
+        samples, beam_width, reply_width = job.subject_search or DEFAULT_SEARCH
+        subject = SearchBot(
+            job.weights,
+            seed=subject_seed,
+            samples=samples,
+            beam_width=beam_width,
+            reply_width=reply_width,
+        )
     challenger = job.opponent.build(
         opponent_weights, seed=job.seed * 2 + int(subject_side.other)
     )
@@ -233,10 +248,19 @@ def build_jobs(
     seeds: list[int],
     subject_screen_cap: int | None = None,
     subject_search: tuple[int, int, int] | None = None,
+    subject_spec: AgentSpec | None = None,
 ) -> list[Job]:
     """Every seed against every opponent, both colours -- the paired design."""
     return [
-        Job(weights, spec, seed, side, subject_screen_cap, subject_search)
+        Job(
+            weights,
+            spec,
+            seed,
+            side,
+            subject_screen_cap,
+            subject_search,
+            subject_spec,
+        )
         for seed in seeds
         for spec in pool.specs
         for side in (int(Owner.HUMAN), int(Owner.BOT))
@@ -402,9 +426,13 @@ def evaluate(
     workers: int | None = None,
     subject_screen_cap: int | None = None,
     subject_search: tuple[int, int, int] | None = None,
+    subject_spec: AgentSpec | None = None,
 ) -> PoolReport:
     played = run_jobs(
-        build_jobs(weights, pool, seeds, subject_screen_cap, subject_search), workers
+        build_jobs(
+            weights, pool, seeds, subject_screen_cap, subject_search, subject_spec
+        ),
+        workers,
     )
     return PoolReport([result for result in played if result is not None])
 
