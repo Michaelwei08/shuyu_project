@@ -264,6 +264,31 @@ class CliBackendTests(unittest.TestCase):
         self.assertEqual(rest, "位置")
 
 
+class CacheMigrationTests(unittest.TestCase):
+    def test_widening_the_key_does_not_orphan_paid_answers(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from llmarena.cache import PromptCache
+
+        with tempfile.TemporaryDirectory() as folder:
+            cache = PromptCache(Path(folder))
+            cache.put("m", "legal/-/-", "prompt-a", "A10-A9")
+            cache.put("m", "legal/-/-", "prompt-b", "B7-B8")
+            cache.put("other", "legal/-/-", "prompt-c", "C1-C2")
+
+            moved = cache.rename_namespace("m", "legal/-/-", "claude-cli/legal/-/-")
+            self.assertEqual(moved, 2)
+            self.assertEqual(
+                cache.get("m", "claude-cli/legal/-/-", "prompt-a"), "A10-A9"
+            )
+            self.assertEqual(
+                cache.get("m", "claude-cli/legal/-/-", "prompt-b"), "B7-B8"
+            )
+            # A different model's entries are left alone.
+            self.assertIsNone(cache.get("other", "claude-cli/legal/-/-", "prompt-c"))
+
+
 class WilsonTests(unittest.TestCase):
     def test_small_samples_get_honestly_wide_intervals(self) -> None:
         from llmarena.analyse import wilson

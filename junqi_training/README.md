@@ -26,7 +26,25 @@ Pick one and pin it for the session, then check it before anything else:
 
     PY=~/.conda/envs/junqi/bin/python     # substitute the env you found
     $PY -c 'import sys; print(sys.version)'
-    cd junqi_training && $PY -m unittest discover -s tests
+
+## Then: repin the anchor, because `models/` does not travel
+
+`push` deliberately never overwrites `models/`, since this box is what *produces*
+trained weights. But `models/defaults.json` is not produced here -- it is a
+code-derived yardstick, and `BotWeights.load` fills missing keys from the
+dataclass, so **every coefficient added upstream since the last models commit
+resolves silently to today's default** and `test_the_anchor_pins_every_
+coefficient` fails. That has happened twice (`use_rank_elimination`, then
+`eval_hq_entomb`). Both times the repair reported *no behaviour change* -- the
+field was already resolving to the value it then pinned -- so this is hygiene,
+not a re-baseline. Run it after every pull, before the tests:
+
+    $PY scripts/rebuild_anchor.py --write     # read its "BEHAVIOUR CHANGES" line
+    $PY scripts/make_ablations.py             # ablations track *this* box's model
+    $PY -m unittest discover -s tests
+
+If `rebuild_anchor` ever prints an actual behaviour change, stop: numbers
+measured against the old anchor are no longer comparable and need re-baselining.
 
 One test skips (the web-weights sync check; `web/` is not shipped here);
 everything else must pass. Pick a worker count too -- this is CPU-bound, and on a dedicated box

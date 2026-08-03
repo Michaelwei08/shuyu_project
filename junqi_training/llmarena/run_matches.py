@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import math
+from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from statistics import fmean
@@ -43,6 +44,7 @@ from junqi.bot import BotWeights
 from junqi.opponents import AgentSpec
 from junqi.types import Owner
 
+from .agent import TRANSCRIPT, first_illegal_ply
 from .anthropic_completer import USAGE
 from .cost import MODELS, estimate, estimate_tokens
 from .view import RULES
@@ -95,6 +97,12 @@ def main() -> None:
         "--workdir", type=Path, default=Path("data/cli-scratch"),
         help="empty directory for the claude-cli backend",
     )
+    parser.add_argument(
+        "--timeout", type=float, default=420.0,
+        help="per-call ceiling for the claude-cli backend. Measured latency is "
+        "~17-23s, so the default is deliberately loose: a stall kills the whole "
+        "game, and only a re-run off the cache can resume it",
+    )
     parser.add_argument("--model", default="claude-opus-5")
     parser.add_argument("--scaffold", default="legal", choices=("raw", "legal", "derived"))
     parser.add_argument("--effort", default="low")
@@ -124,6 +132,7 @@ def main() -> None:
     if args.backend == "claude-cli":
         args.workdir.mkdir(parents=True, exist_ok=True)
         options.append(("workdir", str(args.workdir)))
+        options.append(("timeout", str(args.timeout)))
     else:
         options += [("effort", args.effort), ("thinking", args.thinking)]
     subject = AgentSpec(
@@ -221,6 +230,48 @@ def main() -> None:
     if points:
         print("-" * 55)
         print(f"search-equivalent: {search_equivalent(points)}")
+
+    if TRANSCRIPT:
+        import json
+
+        by_game: dict[int, list] = defaultdict(list)
+        for record in TRANSCRIPT:
+            by_game[record.seed].append(record)
+        done = [r for r in TRANSCRIPT if r.completed]
+        aborted = len(TRANSCRIPT) - len(done)
+        legal = sum(1 for r in done if r.proposal_legal)
+        sources = Counter(r.source for r in done)
+        print(f"\nproposals: {len(done)} completed decisions")
+        if aborted:
+            print(f"  {aborted} turns never finished (call raised or timed out)")
+        if done:
+            print(
+                f"  first proposal legal          {legal}/{len(done)} "
+                f"({legal / len(done):.1%})"
+            )
+            print(f"  played as proposed / repaired {dict(sources)}")
+        # The point of separating proposal from repair: a forfeit rule is
+        # re-derived here, from games played under fallback, at no extra cost.
+        forfeits = [
+            (seed, first_illegal_ply(sorted(rows, key=lambda r: r.ply)))
+            for seed, rows in sorted(by_game.items())
+        ]
+        survived = sum(1 for _, ply in forfeits if ply is None)
+        print(
+            f"  under a FORFEIT rule instead: {survived}/{len(forfeits)} games "
+            "would have run to the end"
+        )
+        for seed, ply in forfeits:
+            if ply is not None:
+                print(f"    seed {seed} would have forfeited at ply {ply}")
+
+        path = Path("data/match-transcript.jsonl")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as stream:
+            for record in TRANSCRIPT:
+                stream.write(json.dumps(record.to_dict(), ensure_ascii=False) + "\n")
+        print(f"  wrote {path}")
+
     print(f"\nusage: {USAGE.format()}")
 
 

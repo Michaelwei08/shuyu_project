@@ -59,6 +59,7 @@ def claude_cli_completer(
     *,
     model: str | None = None,
     timeout: float = 180.0,
+    retries: int = 2,
     usage: Usage | None = None,
     executable: str = "claude",
 ) -> Callable[[str], str]:
@@ -72,6 +73,19 @@ def claude_cli_completer(
     directory.mkdir(parents=True, exist_ok=True)
     _check_clean(directory)
 
+    # `--strict-mcp-config` on its own is not enough, and the failure is
+    # expensive rather than loud. With the flag alone the harness prefix was
+    # measured at 5,159 tokens on one call and 25,828 on the next -- i.e. the
+    # session's MCP servers sometimes load anyway. When they do, the CLI also
+    # tries to *connect* to each one, which is the most likely reason a whole
+    # match run timed out at 180s per call while a bare prompt answered in six
+    # seconds. Pointing --mcp-config at an empty server set makes it
+    # deterministic: 5,159 every time.
+    # Absolute: the subprocess runs with `cwd=directory`, so a relative path
+    # would resolve against it a second time.
+    mcp_config = (directory / "empty-mcp.json").resolve()
+    mcp_config.write_text('{"mcpServers":{}}', encoding="utf-8")
+
     def complete(prompt: str) -> str:
         system, rest = split_cacheable(prompt)
         command = [
@@ -79,7 +93,9 @@ def claude_cli_completer(
             "--print",
             "--output-format",
             "json",
-            # Drops ~20k tokens of MCP tool definitions. Measured: 25,830 -> 5,153.
+            # Both are needed. Measured: 25,830 -> 5,159, and deterministic.
+            "--mcp-config",
+            str(mcp_config),
             "--strict-mcp-config",
             "--no-session-persistence",
         ]
@@ -88,15 +104,26 @@ def claude_cli_completer(
         if model is not None:
             command += ["--model", model]
 
-        finished = subprocess.run(
-            command,
-            input=rest,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            cwd=directory,
-            timeout=timeout,
-        )
+        # A stalled call kills the whole game, and `play_match` cannot resume
+        # mid-game -- only a re-run can, off the cache. Measured latency is
+        # ~17-23s against a 180s ceiling, so a timeout here is a transient
+        # stall rather than genuine slowness, and retrying is far cheaper than
+        # losing the game.
+        for attempt in range(retries + 1):
+            try:
+                finished = subprocess.run(
+                    command,
+                    input=rest,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    cwd=directory,
+                    timeout=timeout,
+                )
+                break
+            except subprocess.TimeoutExpired:
+                if attempt == retries:
+                    raise
         if finished.returncode != 0:
             raise RuntimeError(
                 f"claude exited {finished.returncode}: {finished.stderr[:400]}"
@@ -145,4 +172,5 @@ def register() -> None:
         options.get("workdir", "data/cli-scratch"),
         model=options.get("model") or None,
         timeout=float(options.get("timeout", "180")),
+        retries=int(options.get("retries", "2")),
     )

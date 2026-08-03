@@ -108,6 +108,34 @@ class PromptCache:
     def stats(self) -> dict[str, int]:
         return {"hits": self.hits, "misses": self.misses, "writes": self.writes}
 
+    def rename_namespace(self, model: str, old: str, new: str) -> int:
+        """Re-file entries under a new scaffold key, keeping the answers.
+
+        The key deliberately includes everything that changes a reply, so
+        widening it -- adding the backend, say -- orphans every existing entry
+        and silently re-spends for answers already paid for. Each entry stores
+        its own prompt, so the old ones can simply be re-keyed rather than
+        re-earned. Returns how many moved.
+        """
+        moved = 0
+        for path in sorted(self.root.rglob("*.json")):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if payload.get("model") != model or payload.get("scaffold") != old:
+                continue
+            self.put(
+                model,
+                new,
+                payload["prompt"],
+                payload["response"],
+                variant=payload.get("variant", 0),
+                meta=payload.get("meta"),
+            )
+            moved += 1
+        return moved
+
 
 class NullCache:
     """Drop-in that stores nothing, for tests that want every call to land."""

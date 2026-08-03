@@ -61,11 +61,17 @@ class TurnRecord:
 
     ply: int
     side: str
+    scaffold: str
+    legal_count: int
     #: The builder seed, so turns from concurrently-played games can be told
     #: apart when every agent writes into one shared sink.
     seed: int = -1
-    scaffold: str
-    legal_count: int
+    #: False when the decision never finished -- the call raised or timed out.
+    #: The record is appended *before* the call so a crash is still visible, so
+    #: without this flag an aborted turn is indistinguishable from a turn where
+    #: the model proposed something illegal, and `first_illegal_ply` reads the
+    #: crash as a forfeit.
+    completed: bool = False
     #: Every raw completion, in order. Length > 1 only under the retry policy.
     responses: list[str] = field(default_factory=list)
     #: What the model asked for on its *first* attempt, or None if unparseable.
@@ -89,6 +95,7 @@ class TurnRecord:
             "proposal_legal": self.proposal_legal,
             "played": self.played,
             "source": self.source,
+            "completed": self.completed,
         }
 
 
@@ -100,6 +107,11 @@ def first_illegal_ply(transcript: Sequence[TurnRecord]) -> int | None:
     without another call.
     """
     for record in transcript:
+        # An unfinished turn is a harness failure, not an illegal proposal.
+        # Counting it as one reported "would have forfeited at ply 24" for a
+        # game that actually died on a 180s timeout.
+        if not record.completed:
+            continue
         if not record.proposal_legal:
             return record.ply
     return None
@@ -194,11 +206,13 @@ class LLMAgent:
             if move is not None and move in legal_set:
                 record.played = str(move)
                 record.source = "model" if attempt == 0 else "retry"
+                record.completed = True
                 return move
 
         fallback = self.rng.choice(legal)
         record.played = str(fallback)
         record.source = "random"
+        record.completed = True
         return fallback
 
     @staticmethod
@@ -327,4 +341,5 @@ def build_agent(spec: Any, _weights: Any, seed: int) -> LLMAgent:
         repair=options.get("repair", "fallback"),
         max_retries=int(options.get("max_retries", "2")),
         seed=seed,
+        transcript=_SharedTranscript(),
     )
