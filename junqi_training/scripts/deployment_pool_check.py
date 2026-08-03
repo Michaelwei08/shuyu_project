@@ -101,6 +101,16 @@ def main() -> None:
         default=None,
         help="把 deployment_game 解出的均衡混合也加入候选",
     )
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=Path("models/deployment_pool_check.json"),
+        help=(
+            "把每个（候选，对手）格的配对差落盘。"
+            "一次 22 分钟的运行不该只剩七个数字——"
+            "价值函数那轮真正的信号就是按对手拆开才看见的"
+        ),
+    )
     arguments = parser.parse_args()
     # Redirected to a file, stdout buffers in 8KB blocks and the results table
     # stays invisible until the process exits.
@@ -175,10 +185,12 @@ def main() -> None:
           f"{'--':>8} {'--':>10} {'--':>8} {'--':>10}")
 
     rows = []
+    per_opponent: dict[str, dict[str, float]] = {}
     for name in candidates:
         window = windows[name]
         differences: list[float] = []
         by_seed: dict[int, list[float]] = defaultdict(list)
+        by_opponent: dict[str, list[float]] = defaultdict(list)
         held: list[float] = []
         wins: list[float] = []
         for candidate, incumbent in zip(window, base, strict=True):
@@ -187,9 +199,13 @@ def main() -> None:
             delta = candidate.score - incumbent.score
             differences.append(delta)
             by_seed[candidate.seed].append(delta)
+            by_opponent[candidate.opponent].append(delta)
             wins.append(candidate.result)
             if candidate.opponent in HELD_OUT:
                 held.append(delta)
+        per_opponent[name] = {
+            opponent: fmean(values) for opponent, values in by_opponent.items()
+        }
         if not differences:
             print(f"{name:<28} every paired match failed")
             continue
@@ -224,6 +240,50 @@ def main() -> None:
         "pool grading its own homework; a held-out effect that the aggregate "
         "dilutes away is real but too small to adopt (D012)."
     )
+
+    # Per-opponent, because an aggregate hides which opponents a change works
+    # against. That split is how the learned evaluation was finally understood:
+    # +6.4 against heuristic and +5.1 against search-shallow, nothing against
+    # the other nine, and the aggregate diluted it below the bar.
+    opponents = sorted({name for row in per_opponent.values() for name in row})
+    print("\nper-opponent paired difference:")
+    label = max(len(name) for name in candidates)
+    print(" " * (label + 2) + "".join(f"{name[:11]:>12}" for name in opponents))
+    for name in candidates:
+        if name not in per_opponent:
+            continue
+        cells = "".join(
+            f"{per_opponent[name].get(item, float('nan')):>+12.3f}"
+            for item in opponents
+        )
+        print(f"{name:<{label}}  {cells}")
+
+    arguments.out.parent.mkdir(parents=True, exist_ok=True)
+    arguments.out.write_text(
+        json.dumps(
+            {
+                "baseline": BASELINE,
+                "games_per_arm": rows[0][6],
+                "seeds": len(seeds),
+                "held_out": list(HELD_OUT),
+                "aggregate": {
+                    row[0]: {
+                        "mean": row[1],
+                        "se": row[2],
+                        "clustered_se": row[3],
+                        "p": row[4],
+                        "held_out_mean": row[5],
+                        "n": row[6],
+                    }
+                    for row in rows
+                },
+                "per_opponent": per_opponent,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    print(f"\nwritten to {arguments.out}")
 
 
 if __name__ == "__main__":
