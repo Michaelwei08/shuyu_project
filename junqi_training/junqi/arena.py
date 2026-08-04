@@ -23,7 +23,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from statistics import fmean, stdev
@@ -471,6 +471,15 @@ class Comparison:
     mean_difference: float
     standard_error: float
     p_value: float
+    #: Per-opponent paired difference: name -> (games, mean, standard error).
+    #: The aggregate hides which opponents a change works against, and that
+    #: split is how the learned evaluation was finally understood. Marginal win
+    #: rates cannot substitute: only the *paired* difference cancels the opening.
+    per_opponent: dict[str, tuple[int, float, float]] = field(default_factory=dict)
+    #: Standard error treating each seed, not each match, as the unit. The naive
+    #: one is optimistic by about 12% here, because the matches sharing a seed
+    #: share an opening (measured design effect 1.26 on 2026-08-01).
+    clustered_error: float = 0.0
 
     @property
     def significant(self) -> bool:
@@ -486,15 +495,39 @@ class Comparison:
         return 1.645 * self.standard_error
 
     def format(self) -> str:
+        clustered = (
+            f", seed-clustered {self.clustered_error:.4f}"
+            if self.clustered_error
+            else ""
+        )
         return (
             f"candidate {self.candidate.score:.3f} (win {self.candidate.win_rate:.1%}) "
             f"vs incumbent {self.incumbent.score:.3f} "
             f"(win {self.incumbent.win_rate:.1%})\n"
             f"paired difference {self.mean_difference:+.4f} "
-            f"+/- {self.standard_error:.4f} (SE), p = {self.p_value:.4f}, "
+            f"+/- {self.standard_error:.4f} (SE){clustered}, "
+            f"p = {self.p_value:.4f}, "
             f"n = {self.candidate.games} games each\n"
             f"minimum detectable improvement at this n: {self.detectable:+.4f}"
         )
+
+    def format_per_opponent(self) -> str:
+        """Paired difference against each opponent, worst first.
+
+        Read this only when each cell holds enough games: at `--games 2400` over
+        a 16-opponent pool a cell is 150 games and its SE is near 0.09 in score,
+        so single rows are noise. It earns its keep at 600+ per cell, or when a
+        *group* of opponents moves together for a reason the change predicts.
+        """
+        if not self.per_opponent:
+            return ""
+        lines = [f"{'opponent':<18} {'games':>6} {'paired diff':>12} {'SE':>8}"]
+        lines.append("-" * len(lines[0]))
+        for name, (count, mean, error) in sorted(
+            self.per_opponent.items(), key=lambda item: item[1][1]
+        ):
+            lines.append(f"{name:<18} {count:>6} {mean:>+12.4f} {error:>8.4f}")
+        return "\n".join(lines)
 
 
 def compare(
@@ -548,7 +581,33 @@ def compare(
     else:
         z = mean / error
         p_value = 1.0 - 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
-    return Comparison(PoolReport(left), PoolReport(right), mean, error, p_value)
+
+    grouped: dict[str, list[float]] = {}
+    by_seed: dict[int, list[float]] = {}
+    for (candidate_result, _), difference in zip(pairs, differences, strict=True):
+        grouped.setdefault(candidate_result.opponent, []).append(difference)
+        by_seed.setdefault(candidate_result.seed, []).append(difference)
+    per_opponent = {
+        name: (
+            len(values),
+            fmean(values),
+            stdev(values) / math.sqrt(len(values)) if len(values) > 1 else 0.0,
+        )
+        for name, values in grouped.items()
+    }
+    seed_means = [fmean(values) for values in by_seed.values() if values]
+    clustered = (
+        stdev(seed_means) / math.sqrt(len(seed_means)) if len(seed_means) > 1 else 0.0
+    )
+    return Comparison(
+        PoolReport(left),
+        PoolReport(right),
+        mean,
+        error,
+        p_value,
+        per_opponent,
+        clustered,
+    )
 
 
 def archive(weights: BotWeights, directory: str | Path, label: str) -> Path:

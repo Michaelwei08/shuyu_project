@@ -32,12 +32,33 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--games", type=int, default=200)
     parser.add_argument("--seeds", type=int, default=1, help="独立种子块数量")
     parser.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help=(
+            "种子块基址偏移。默认 0 复现历史数字；"
+            "换一个值可得到全新开局，用来确认某个按对手分组的结论"
+            "——分组是看过数据之后才提出的，就必须在新种子上再确认一次"
+        ),
+    )
+    parser.add_argument(
         "--workers",
         type=int,
         default=None,
         help=(
             "并行进程数。默认只用约三分之一核心并降低进程优先级，"
             "以免长时间评测把整台机器占死；无人使用时可手动调高"
+        ),
+    )
+    parser.add_argument(
+        "--only",
+        nargs="+",
+        default=None,
+        metavar="OPPONENT",
+        help=(
+            "只对这些对手评测。用来把一个按对手分组的假设测到足够功率："
+            "全池 2400 局时每格只有 150 局，而限定到三个对手后每格 400 局。"
+            "注意这样得到的聚合不是 D012 的采纳标准，只是对该假设的检验"
         ),
     )
     parser.add_argument("--archive", type=Path, default=Path("models/history"))
@@ -148,6 +169,22 @@ def main() -> None:
         anchor=str(anchor) if anchor else None,
         exploiters=exploiters,
     )
+    if arguments.only:
+        wanted = set(arguments.only)
+        missing = wanted - {spec.name for spec in pool.specs}
+        if missing:
+            raise SystemExit(
+                f"not in the pool: {sorted(missing)}\n"
+                f"available: {[spec.name for spec in pool.specs]}"
+            )
+        from .opponents import Pool
+
+        pool = Pool([spec for spec in pool.specs if spec.name in wanted])
+        print(f"RESTRICTED pool: {[spec.name for spec in pool.specs]}")
+        print(
+            "  this aggregate is NOT the adoption criterion (D012 is the full "
+            "pool); it is a powered test of one grouping hypothesis"
+        )
     print(f"anchor: {anchor if anchor else 'NONE (opponents track the model)'}")
     print(f"pool: {len(pool)} opponents -> {[s.name for s in pool.specs]}")
 
@@ -168,7 +205,7 @@ def main() -> None:
 
     per_block = max(1, arguments.games // max(1, arguments.seeds))
     blocks = [
-        seeds_for(per_block, pool, offset=100_000 * (block + 1))
+        seeds_for(per_block, pool, offset=arguments.offset + 100_000 * (block + 1))
         for block in range(arguments.seeds)
     ]
     started = time.perf_counter()
@@ -193,6 +230,10 @@ def main() -> None:
         print(verdict.incumbent.format())
         print()
         print(verdict.format())
+        breakdown = verdict.format_per_opponent()
+        if breakdown:
+            print("\nper-opponent paired difference (worst first):")
+            print(breakdown)
         elapsed = time.perf_counter() - started
         played = verdict.candidate.games * 2
         print(f"\n{played} games in {elapsed:.0f}s")
