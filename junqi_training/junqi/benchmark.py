@@ -20,11 +20,15 @@ from .opponents import discover_exploiters, discover_history, standard_pool
 
 
 DEFAULT_ANCHOR = Path("models/defaults.json")
+DEFAULT_MODEL = Path("models/bot_weights.json")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="对手池基准评测")
-    parser.add_argument("--model", type=Path, default=Path("models/bot_weights.json"))
+    # A sentinel rather than the path itself, so an explicitly passed --model
+    # that does not exist can be told apart from the default one being absent on
+    # a fresh checkout. See the guard in `main`.
+    parser.add_argument("--model", type=Path, default=None)
     parser.add_argument("--games", type=int, default=200)
     parser.add_argument("--seeds", type=int, default=1, help="独立种子块数量")
     parser.add_argument(
@@ -115,10 +119,24 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     arguments = build_parser().parse_args()
+    # A model path the user typed and that does not exist must be fatal. It used
+    # to fall back to `BotWeights()`, which differs from the shipped model in 14
+    # of 36 fields -- so a mistyped or unsynced `--model models/ab/foo.json`
+    # quietly measured *default weights* against the baseline and printed a
+    # perfectly ordinary-looking result. `models/` never travels with
+    # `sync_remote.py push`, so an ablation that has not been regenerated on the
+    # box is exactly how this happens.
+    if arguments.model is not None and not arguments.model.exists():
+        raise SystemExit(
+            f"--model {arguments.model} does not exist.\n"
+            "If this is an ablation, `models/` is not synced by "
+            "scripts/sync_remote.py -- run `python scripts/make_ablations.py` "
+            "first. Refusing to fall back to default weights, which would "
+            "measure something you did not ask for."
+        )
+    model_path = arguments.model or DEFAULT_MODEL
     weights = (
-        BotWeights.load(arguments.model)
-        if arguments.model.exists()
-        else BotWeights()
+        BotWeights.load(model_path) if model_path.exists() else BotWeights()
     )
     history = [] if arguments.no_history else discover_history(arguments.archive)
     anchor = arguments.anchor
@@ -168,7 +186,7 @@ def main() -> None:
             incumbent_deployment=baseline_deployment,
             search=search,
         )
-        print(f"\n=== {arguments.model.name} vs {arguments.baseline.name} ===")
+        print(f"\n=== {model_path.name} vs {arguments.baseline.name} ===")
         print("candidate:")
         print(verdict.candidate.format())
         print("\nbaseline:")
