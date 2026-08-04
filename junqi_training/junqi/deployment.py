@@ -151,14 +151,20 @@ class DeploymentFamily:
     #: degenerate case. Drawn from the deploying side's own stream, so mixing
     #: one army never perturbs the other.
     mixture: tuple[tuple[str, float], ...] = ()
-    #: Always mine the full screen, instead of dropping to `cap - 1` a quarter
-    #: of the time. `standard` seals all three doors only 75% of the game, so
-    #: **26.7% of openings leave a mobile piece on a flag door** -- and a mobile
-    #: guard is one the search walks off for any capture worth more than
-    #: `eval_hq_guard = 5.5`. Observed doing exactly that in a human game on
-    #: 2026-08-04: a major general left the door at ply 14 to take an engineer,
-    #: and the flag fell through that square 27 plies later.
-    always_seal: bool = False
+    #: Mine the full screen every game, instead of dropping to `cap - 1` a
+    #: quarter of the time. **Now the default, on measurement**: the generator
+    #: used to seal all three doors only 75% of the time, leaving a mobile piece
+    #: on a flag door in 26.7% of openings -- and a mobile guard is one the
+    #: search walks off for any capture worth more than `eval_hq_guard = 5.5`.
+    #: It was caught doing exactly that in a human game on 2026-08-04: a major
+    #: general left the door at ply 14 to take a 3-point engineer, and the flag
+    #: fell through that square 27 plies later.
+    #:
+    #: Sealing unconditionally measured **+0.0384 +/- 0.0067 (clustered 0.0089),
+    #: p ~ 0, over 2400 paired games** -- 72.8% against 69.6%, with the held-out
+    #: four echoing it at +0.0365. `seal-75` is the old behaviour, kept as the
+    #: switched-off end.
+    always_seal: bool = True
 
 
 FAMILIES: dict[str, DeploymentFamily] = {
@@ -173,9 +179,16 @@ FAMILIES: dict[str, DeploymentFamily] = {
     # strategy is not measuring anything.
     "screen2": DeploymentFamily("screen2", screen_cap=2),
     "bomb-home": DeploymentFamily("bomb-home", home_bombs=1),
-    # Seal all three flag doors every game instead of 75% of them. `bomb-home`
-    # already measured -10 points for covering one door with something mobile,
-    # and `standard` does that to itself in 26.7% of openings.
+    # The generator as it stood before 2026-08-04: all three doors sealed only
+    # 75% of the time, so 26.7% of openings hand a flag door to a mobile piece.
+    # Kept as the off end of the switch that replaced it, the same way
+    # `unknown_risk` and `screen2` are kept -- a superseded variant that cannot
+    # be selected is a result nobody can re-check.
+    "seal-75": DeploymentFamily("seal-75", always_seal=False),
+    # Identical to `standard` now that sealing is the default. Retained because
+    # the command that measured the change still names it, and because an
+    # identical family is a free instrument check: it must score exactly
+    # +0.0000 +/- 0.0000 against `standard`.
     "seal-always": DeploymentFamily("seal-always", always_seal=True),
     "uniform": DeploymentFamily("uniform", uniform=True),
 }
@@ -214,7 +227,13 @@ def resolve_family(family: str | int | None) -> DeploymentFamily:
     if family is None:
         return FAMILIES[DEFAULT_FAMILY]
     if isinstance(family, int):
-        return DeploymentFamily(f"screen{family}", screen_cap=family)
+        # `always_seal=False` on purpose: `--screen-cap` predates the 2026-08-04
+        # change, and the -0.0985 cap-2-versus-cap-3 result was measured with the
+        # 75% branch in place. Keeping the old semantics here keeps that number
+        # reproducible instead of silently re-defining what it compared.
+        return DeploymentFamily(
+            f"screen{family}", screen_cap=family, always_seal=False
+        )
     if family.startswith("mix:"):
         return parse_mixture(family)
     if family not in FAMILIES:

@@ -43,7 +43,15 @@ class FamilyTests(unittest.TestCase):
         """A family that silently falls back to `standard` measures nothing."""
         seen: dict[str, Counter] = {}
         doors: dict[str, Counter] = {}
-        for name in ("standard", "decoy-mine", "decoy-bomb", "screen2", "bomb-home"):
+        for name in (
+            "standard",
+            "decoy-mine",
+            "decoy-bomb",
+            "screen2",
+            "bomb-home",
+            "seal-75",
+            "seal-always",
+        ):
             decoys: Counter = Counter()
             mines: Counter = Counter()
             for seed in range(120):
@@ -78,7 +86,13 @@ class FamilyTests(unittest.TestCase):
         self.assertEqual(set(doors["decoy-mine"]), {2})
         # The known-bad family must still be the known-bad family.
         self.assertLessEqual(max(doors["screen2"]), 2)
-        self.assertEqual(max(doors["standard"]), 3)
+        # Shipped since 2026-08-04: the seal is unconditional, worth
+        # +0.0384 +/- 0.0067 over 2400 paired games. Every opening, not 75%.
+        self.assertEqual(set(doors["standard"]), {3})
+        self.assertEqual(set(doors["seal-always"]), {3})
+        # And the superseded generator must still be selectable, or the result
+        # above stops being re-checkable.
+        self.assertEqual(set(doors["seal-75"]), {2, 3})
 
     def test_a_family_changes_only_its_own_army(self) -> None:
         """The property the whole paired design rests on."""
