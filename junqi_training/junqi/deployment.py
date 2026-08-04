@@ -151,6 +151,14 @@ class DeploymentFamily:
     #: degenerate case. Drawn from the deploying side's own stream, so mixing
     #: one army never perturbs the other.
     mixture: tuple[tuple[str, float], ...] = ()
+    #: Always mine the full screen, instead of dropping to `cap - 1` a quarter
+    #: of the time. `standard` seals all three doors only 75% of the game, so
+    #: **26.7% of openings leave a mobile piece on a flag door** -- and a mobile
+    #: guard is one the search walks off for any capture worth more than
+    #: `eval_hq_guard = 5.5`. Observed doing exactly that in a human game on
+    #: 2026-08-04: a major general left the door at ply 14 to take an engineer,
+    #: and the flag fell through that square 27 plies later.
+    always_seal: bool = False
 
 
 FAMILIES: dict[str, DeploymentFamily] = {
@@ -165,6 +173,10 @@ FAMILIES: dict[str, DeploymentFamily] = {
     # strategy is not measuring anything.
     "screen2": DeploymentFamily("screen2", screen_cap=2),
     "bomb-home": DeploymentFamily("bomb-home", home_bombs=1),
+    # Seal all three flag doors every game instead of 75% of them. `bomb-home`
+    # already measured -10 points for covering one door with something mobile,
+    # and `standard` does that to itself in 26.7% of openings.
+    "seal-always": DeploymentFamily("seal-always", always_seal=True),
     "uniform": DeploymentFamily("uniform", uniform=True),
 }
 
@@ -299,7 +311,13 @@ def _build_strategic(
     for position in screen[: min(chosen.home_bombs, budget(PieceKind.BOMB))]:
         place(position, PieceKind.BOMB)
     screen = [position for position in screen if position in free]
-    guards = screen[: cap if rng.random() < 0.75 else max(1, cap - 1)]
+    # The 0.75 is what leaves a quarter of openings with a walkable door. Drawn
+    # unconditionally so `always_seal` consumes the same number of values from
+    # the stream as `standard` does -- otherwise the two families would produce
+    # different *layouts* from one seed for a second reason, and the comparison
+    # would not be measuring the seal.
+    loosen = rng.random() >= 0.75
+    guards = screen[: max(1, cap - 1) if loosen and not chosen.always_seal else cap]
     # Exclude the whole screen from the tail, not just the chosen guards, or the
     # remaining mines land back on the neighbours this cap exists to keep free.
     mine_slots = guards + [
@@ -367,29 +385,48 @@ def swap_pieces(
         raise ValueError("该交换会产生非法阵型：" + "；".join(errors))
 
 
-def save_deployment(pieces: dict[Position, Piece], path: str | Path) -> None:
-    errors = validate_deployment(pieces, Owner.BOT)
+def save_deployment(
+    pieces: dict[Position, Piece], path: str | Path, owner: Owner = Owner.BOT
+) -> None:
+    """Write one side's layout to disk.
+
+    ``owner`` defaults to the bot so `layout_training` and `--deployment-model`
+    keep their historical meaning, but a person's own opening is the same object
+    on the other half of the board -- worth saving once rather than re-swapping
+    it by hand every game.
+    """
+    errors = validate_deployment(pieces, owner)
     if errors:
-        raise ValueError("不能保存非法 Bot 阵型：" + "；".join(errors))
+        raise ValueError(f"不能保存非法阵型（{owner.name}）：" + "；".join(errors))
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         format_position(position): piece.kind.name
         for position, piece in sorted(pieces.items())
-        if piece.owner == Owner.BOT
+        if piece.owner == owner
     }
     with destination.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False, indent=2)
 
 
-def load_deployment(path: str | Path) -> dict[Position, Piece]:
+def load_deployment(
+    path: str | Path, owner: Owner = Owner.BOT
+) -> dict[Position, Piece]:
+    """Read a layout saved by :func:`save_deployment`.
+
+    The squares in the file already imply which half of the board it is for, so
+    a bot layout loaded as a human one fails `validate_deployment` rather than
+    silently producing a board with 50 pieces on one side.
+    """
     with Path(path).open("r", encoding="utf-8") as handle:
         payload = json.load(handle)
     pieces = {
-        parse_position(position): Piece(Owner.BOT, PieceKind[kind])
+        parse_position(position): Piece(owner, PieceKind[kind])
         for position, kind in payload.items()
     }
-    errors = validate_deployment(pieces, Owner.BOT)
+    errors = validate_deployment(pieces, owner)
     if errors:
-        raise ValueError("Bot 布局模型不合法：" + "；".join(errors))
+        raise ValueError(
+            f"{path} 不是合法的 {owner.name} 阵型：" + "；".join(errors)
+        )
     return pieces

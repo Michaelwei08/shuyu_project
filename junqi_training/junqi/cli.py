@@ -9,6 +9,7 @@ from .bot import BotWeights
 from .deployment import (
     load_deployment,
     random_deployment,
+    save_deployment,
     strategic_deployment,
     swap_pieces,
     validate_deployment,
@@ -60,6 +61,7 @@ def render(game: Game) -> str:
 def arrange_player(game: Game, rng: random.Random) -> bool:
     print("\n=== 排兵布阵 ===")
     print("输入 swap A12 B12 交换两枚棋子；random 重新随机；done 确认；quit 退出。")
+    print("save my-opening.json 保存当前阵型，下次用 --my-deployment 直接载入。")
     print("限制：军旗在大本营，地雷在最后两排，炸弹不能在最前排。\n")
     while True:
         print(render(game))
@@ -84,8 +86,22 @@ def arrange_player(game: Game, rng: random.Random) -> bool:
         if command in {"quit", "q", "exit"}:
             print("已退出。")
             return False
+        parts = raw.replace(",", " ").split()
+        if parts and parts[0].lower() in {"save", "保存"}:
+            if len(parts) != 2:
+                print("无法保存：格式应为：save my-opening.json\n")
+                continue
+            try:
+                save_deployment(game.board, Path(parts[1]), Owner.HUMAN)
+            except (ValueError, OSError) as error:
+                print(f"无法保存：{error}\n")
+                continue
+            print(
+                f"已保存到 {parts[1]}。下次用 "
+                f"--my-deployment {parts[1]} 直接载入。\n"
+            )
+            continue
         try:
-            parts = raw.replace(",", " ").split()
             if len(parts) != 3 or parts[0].lower() not in {"swap", "s", "换"}:
                 raise ValueError("格式应为：swap A12 B12")
             left, right = parse_position(parts[1]), parse_position(parts[2])
@@ -178,6 +194,7 @@ def play(
     search_replies: int = 4,
     opponent: str = "search",
     replay_path: Path | None = None,
+    player_deployment: Path | None = None,
 ) -> None:
     weights = BotWeights.load(model_path) if model_path.exists() else BotWeights()
     if opponent == "search":
@@ -202,6 +219,19 @@ def play(
         else strategic_deployment(Owner.BOT, rng)
     )
     game = Game.new(seed=seed, bot_deployment=bot_deployment)
+    if player_deployment is not None:
+        # Replace the random human layout with the saved one, *before*
+        # arranging, so it can still be tweaked and re-saved. A bad file is
+        # fatal rather than silently ignored: playing a random opening you
+        # believed was yours is worse than being told to fix the path.
+        loaded = load_deployment(player_deployment, Owner.HUMAN)
+        game.board = {
+            position: piece
+            for position, piece in game.board.items()
+            if piece.owner != Owner.HUMAN
+        }
+        game.board.update(loaded)
+        print(f"已载入你的阵型：{player_deployment}")
     if opponent != "search":
         print(
             f"*** {opponent.upper()}: this opponent SEES YOUR HIDDEN RANKS. "
@@ -299,6 +329,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="终局后把棋谱写到这个文件，格式与网页版一致，可直接贴出来分析",
     )
+    parser.add_argument(
+        "--my-deployment",
+        type=Path,
+        default=None,
+        help=(
+            "载入你自己的初始阵型（布阵阶段用 save my-opening.json 保存的文件）。"
+            "载入后仍可继续 swap 调整再 done；文件不合法会直接报错退出，"
+            "不会悄悄换成随机阵型"
+        ),
+    )
     return parser
 
 
@@ -308,6 +348,10 @@ def main() -> None:
         raise SystemExit("search-samples 至少为 1")
     if arguments.search_replies < 1:
         raise SystemExit("search-replies 至少为 1")
+    if arguments.my_deployment is not None and not arguments.my_deployment.exists():
+        raise SystemExit(f"--my-deployment {arguments.my_deployment} 不存在")
+    if arguments.my_deployment is not None and arguments.auto_deploy:
+        raise SystemExit("--my-deployment 与 --auto-deploy 冲突：前者就是你的阵型")
     play(
         arguments.seed,
         arguments.model,
@@ -317,6 +361,7 @@ def main() -> None:
         arguments.search_replies,
         arguments.opponent,
         arguments.replay,
+        arguments.my_deployment,
     )
 
 
