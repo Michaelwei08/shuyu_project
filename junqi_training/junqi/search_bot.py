@@ -474,6 +474,11 @@ class SearchBot:
                 if len(attacking) == 1
                 else weights.eval_hq_attack
             )
+            if reach <= 1:
+                # The mirror of `eval_hq_breach` below: our raider takes the
+                # flag next ply unless it is removed, and the linear term above
+                # pays the same for closing 6->5 as for closing 2->1. Ships at 0.
+                value += weights.eval_hq_storm
         defending = game.flag_candidates(owner)
         threat = self._closest_raider(game, owner.other, defending)
         if threat is not None:

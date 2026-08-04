@@ -155,6 +155,21 @@ class BotWeights:
     # to 6. Both went in together and may pull opposite ways, so it is a weight
     # too -- the metric and its rescaling need separating.
     eval_horizon: float = 6.0
+    # Extra reward per row of depth for entering a camp in enemy territory, on
+    # top of the flat `camp`. A camp cannot be captured into, so a piece in one
+    # is untouchable -- and an untouchable piece two rows from the enemy flag is
+    # worth more than an untouchable piece next to the river. The flat term
+    # cannot express that; it pays 1.1 for every camp on the board equally.
+    # Depth is measured past the river, so enemy camps score 2, 3 or 4 and own
+    # camps clamp to 0. Ships at 0.
+    camp_depth: float = 0.0
+    # The offensive twin of `eval_hq_breach`. That term subtracts a lump when an
+    # *enemy* stands next to a headquarters that may hold our flag, because the
+    # linear distance term barely separates "takes the flag next ply" from
+    # "somewhere in the middle". Nothing did the same for our own raiders, so
+    # closing from two squares to one paid exactly what closing from six to five
+    # pays. Ships at 0.
+    eval_hq_storm: float = 0.0
     # Cost of ending a move on a headquarters square, per point of piece value.
     # Immobility attaches to the *square*, not to the piece deployed there --
     # `_destinations` returns an empty set for any source in HEADQUARTERS -- so
@@ -240,6 +255,13 @@ class HeuristicBot:
         score += direction * (move.dst[0] - move.src[0]) * weights.forward
         if move.dst in CAMPS:
             score += weights.camp
+            if weights.camp_depth:
+                # Rows advanced past the river: enemy camps give 2..4, own
+                # camps give <= 0 and are clamped away.
+                depth = (
+                    move.dst[0] - 5 if owner == Owner.BOT else 6 - move.dst[0]
+                )
+                score += weights.camp_depth * max(0, depth)
         if piece.kind == PieceKind.ENGINEER and _reveals_engineer(game, move):
             score += weights.engineer_expose
 

@@ -91,6 +91,27 @@ def main() -> None:
     # value and the other two bracket it.
     for scale in (0.25, 0.5, 1.0):
         variants[f"insight-{scale:g}"] = replace(shipped, reply_insight=scale)
+    # 2026-08-04, all three from a human's reading of a lost game. Sealing the
+    # flag doors (a deployment change) was worth +0.0384; these are the
+    # evaluation-side versions of the same intuitions.
+    #
+    # 1. Guarding the flag should outweigh a capture. `eval_hq_guard` already
+    #    exists at 5.5 per guard, against `capture` at 2.8 plus battle terms --
+    #    which is why a major general walked off a flag door to take a 3-point
+    #    engineer. No new coefficient needed, just volume.
+    for scale in (2.0, 4.0):
+        variants[f"guard-{scale:g}x"] = replace(
+            shipped, eval_hq_guard=shipped.eval_hq_guard * scale
+        )
+    # 2. Being one square from their flag should pay more than being six. The
+    #    defensive side already has that lump (`eval_hq_breach` 26.0); the
+    #    offensive side had nothing, so closing 2->1 paid what 6->5 pays.
+    for scale in (8.0, 20.0):
+        variants[f"storm-{scale:g}"] = replace(shipped, eval_hq_storm=scale)
+    # 3. A camp cannot be captured into, so a piece in one is untouchable -- and
+    #    depth should matter. The flat `camp` pays 1.1 for every camp equally.
+    for scale in (0.5, 1.5):
+        variants[f"campdepth-{scale:g}"] = replace(shipped, camp_depth=scale)
     arguments.out.mkdir(parents=True, exist_ok=True)
     for name, weights in variants.items():
         destination = arguments.out / f"{name}.json"
