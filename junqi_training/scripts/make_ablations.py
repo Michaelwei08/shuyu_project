@@ -106,7 +106,19 @@ def main() -> None:
     # 2. Being one square from their flag should pay more than being six. The
     #    defensive side already has that lump (`eval_hq_breach` 26.0); the
     #    offensive side had nothing, so closing 2->1 paid what 6->5 pays.
-    for scale in (8.0, 20.0):
+    #    Divergence, n=256: 8.0 fires on 55.1% of games for +0.0385 +/- 0.0205,
+    #    20.0 on 64.8% for +0.0652 +/- 0.0226. **Rising with scale**, which is
+    #    the opposite of every null this project has recorded -- entombment and
+    #    guard both got quieter when turned up. 40.0 is here to find where it
+    #    turns over, because a term that only ever improves has not been bounded.
+    #    **Adopted at 20.0 on 2026-08-04**, and it is the first replicated
+    #    positive here: +0.0178 +/- 0.0083 (clustered 0.0092, p = 0.016) and, on
+    #    openings it was not measured on, +0.0168 +/- 0.0088 (clustered 0.0093,
+    #    p = 0.029). Point estimates 0.001 apart. `storm-off` is now the
+    #    switched-off end; 40.0 remains to ask whether 20 is the right value,
+    #    since the scale was picked off a local estimate that did not reproduce.
+    variants["storm-off"] = replace(shipped, eval_hq_storm=0.0)
+    for scale in (8.0, 40.0):
         variants[f"storm-{scale:g}"] = replace(shipped, eval_hq_storm=scale)
     # 3. A camp cannot be captured into, so a piece in one is untouchable -- and
     #    depth should matter. The flat `camp` pays 1.1 for every camp equally.

@@ -34,6 +34,7 @@ is not a post-hoc slice, but the aggregate is still what D012 names as the bar.
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from dataclasses import fields
 from pathlib import Path
@@ -85,34 +86,47 @@ def main() -> None:
 
     print(
         f"\n{'scale':>7} {'games':>7} {'diverged':>10} {'mean diff':>11} "
-        f"{'SD':>8} {'SE':>8} {'per touched':>12}"
+        f"{'naive SE':>9} {'clustered':>10}"
     )
-    print("-" * 68)
+    print("-" * 58)
     for index, (scale, _) in enumerate(arms, start=1):
         window = played[index * width : (index + 1) * width]
-        differences = [
-            candidate.score - incumbent.score
+        pairs = [
+            (candidate, candidate.score - incumbent.score)
             for candidate, incumbent in zip(window, base, strict=True)
             if candidate is not None and incumbent is not None
         ]
-        if not differences:
+        if not pairs:
             print(f"{scale:>7} every paired match failed")
             continue
+        differences = [value for _, value in pairs]
         moved = [value for value in differences if abs(value) > 1e-12]
         share = len(moved) / len(differences)
         deviation = stdev(differences) if len(differences) > 1 else 0.0
         mean = fmean(differences)
+        by_seed: dict[int, list[float]] = {}
+        for candidate, value in pairs:
+            by_seed.setdefault(candidate.seed, []).append(value)
+        seed_means = [fmean(values) for values in by_seed.values() if values]
+        clustered = (
+            stdev(seed_means) / math.sqrt(len(seed_means))
+            if len(seed_means) > 1
+            else 0.0
+        )
         print(
             f"{scale:>7} {len(differences):>7} {share:>9.1%} {mean:>+11.4f} "
-            f"{deviation:>8.4f} "
-            f"{deviation / len(differences) ** 0.5:>8.4f} "
-            f"{(mean / share if share else float('nan')):>+12.4f}"
+            f"{deviation / len(differences) ** 0.5:>9.4f} {clustered:>10.4f}"
         )
+    print(f"\n{len(seeds)} openings underlie every row above.")
     print(
-        "\nRead the divergence column first. A coefficient that fires on a tenth "
-        "of games cannot be judged by an aggregate that is nine parts untouched "
-        "game -- and if raising the scale fires on more games without moving the "
-        "mean, the term is neutral rather than under-powered."
+        "**Read the divergence column, not the mean.** Divergence is a per-game "
+        "count and is precise. The mean rests on those few openings, not on the "
+        "game count, so the naive SE is badly optimistic -- on 2026-08-04 two "
+        "runs of eval_hq_storm at scale 20 gave +0.0652 +/- 0.0226 and "
+        "-0.0198 +/- 0.0227 on different seed blocks, a sign flip that the naive "
+        "SEs called a 2.7-sigma disagreement. Use the clustered column, and use "
+        "this tool to decide whether a term is worth 2400 games on the box, "
+        "never to decide whether it works."
     )
 
 
