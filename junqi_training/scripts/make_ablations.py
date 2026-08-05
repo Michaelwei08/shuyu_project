@@ -99,10 +99,18 @@ def main() -> None:
     #    exists at 5.5 per guard, against `capture` at 2.8 plus battle terms --
     #    which is why a major general walked off a flag door to take a 3-point
     #    engineer. No new coefficient needed, just volume.
-    for scale in (2.0, 4.0):
-        variants[f"guard-{scale:g}x"] = replace(
-            shipped, eval_hq_guard=shipped.eval_hq_guard * scale
-        )
+    #    **Adopted at 11.0 on 2026-08-04**, doubled from 5.5, on two independent
+    #    2400-game runs: +0.0087 +/- 0.0064 and +0.0099 +/- 0.0080 (clustered),
+    #    point estimates 0.0012 apart, combining to +0.0092 +/- 0.0050,
+    #    one-sided p = 0.033. Neither run cleared 0.05 alone (both p ~ 0.08); the
+    #    decision rule was fixed before the second one ran.
+    #
+    #    Named by absolute value now that the base has moved. `guard-off` is 5.5,
+    #    the pre-adoption value and the switched-off end; 22.0 asks whether more
+    #    is better still, and is genuinely untested -- the local probe that made
+    #    it look bad reported the mean column, which is not trustworthy.
+    variants["guard-off"] = replace(shipped, eval_hq_guard=5.5)
+    variants["guard-22"] = replace(shipped, eval_hq_guard=22.0)
     # 2. Being one square from their flag should pay more than being six. The
     #    defensive side already has that lump (`eval_hq_breach` 26.0); the
     #    offensive side had nothing, so closing 2->1 paid what 6->5 pays.
