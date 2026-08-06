@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from .board import (
     CAMPS,
     HEADQUARTERS,
+    engineer_only_move,
     engineer_rail_destinations,
     road_neighbors,
     straight_rail_destinations,
@@ -20,6 +21,10 @@ class MoveRecord:
     attacker: Piece
     defender: Piece | None
     outcome: int | None
+    #: True when no rank but an engineer could have made this move. Stamped in
+    #: `apply` because it depends on the board *before* the move, which no later
+    #: reader can reconstruct. Public information -- either side may use it.
+    engineer_only: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +34,9 @@ class ObservedMove:
     had_battle: bool
     outcome: int | None
     own_kind: PieceKind | None
+    #: Only an engineer could have made this move. A certainty rather than a
+    #: prior, and the one piece of rank information a *quiet* move carries.
+    engineer_only: bool = False
 
 
 @dataclass
@@ -121,6 +129,9 @@ class Game:
             raise ValueError("对局已经结束")
         if move not in self.legal_moves():
             raise ValueError(f"非法走法：{move}")
+        # Before the board changes: whether only an engineer could have made
+        # this move depends on what was blocking the rails at the time.
+        engineer_only = engineer_only_move(move.src, move.dst, set(self.board))
         attacker = self.board.pop(move.src)
         defender = self.board.get(move.dst)
         if defender is None:
@@ -133,7 +144,9 @@ class Game:
 
         self.move_count += 1
         self.history.append(result)
-        self.records.append(MoveRecord(move, attacker, defender, outcome))
+        self.records.append(
+            MoveRecord(move, attacker, defender, outcome, engineer_only)
+        )
         if self.winner is None:
             next_player = self.turn.other
             if not self.legal_moves(next_player):
@@ -187,6 +200,7 @@ class Game:
                     had_battle=record.defender is not None,
                     outcome=record.outcome,
                     own_kind=own_kind,
+                    engineer_only=record.engineer_only,
                 )
             )
         return observations

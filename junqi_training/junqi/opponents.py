@@ -231,6 +231,11 @@ class SelectiveBot:
         if self.knowledge is None or self.knowledge.owner != owner:
             self.knowledge = OpponentKnowledge(owner)
             self.processed_records = 0
+        # Set every call, not just on construction: a weight can differ between
+        # two candidates sharing one agent class, and the flag has to follow it.
+        self.knowledge.deduce_engineers = bool(
+            self.heuristic.weights.use_engineer_deduction
+        )
         for event in game.observations(owner, self.processed_records):
             self.knowledge.observe(event)
         self.processed_records = len(game.records)

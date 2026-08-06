@@ -146,6 +146,23 @@ def straight_rail_destinations(
     return destinations
 
 
+def engineer_only_move(
+    source: Position, target: Position, occupied: set[Position]
+) -> bool:
+    """True when no rank but an engineer could have made this move.
+
+    Engineers alone turn corners on the railway, so such a move identifies the
+    piece outright -- for either side. Pure topology, which is why it lives here
+    rather than in the bot: `Game.apply` stamps it onto the record so the belief
+    update can read it, and `_reveals_engineer` prices our own side of it.
+    """
+    if target in road_neighbors(source):
+        return False
+    if target in straight_rail_destinations(source, occupied):
+        return False
+    return target in engineer_rail_destinations(source, occupied)
+
+
 def _move_distances() -> dict[Position, dict[Position, int]]:
     """Moves -- not squares -- between every pair, on an empty board.
 

@@ -8,6 +8,7 @@ from pathlib import Path
 from .board import (
     CAMPS,
     HEADQUARTERS,
+    engineer_only_move,
     engineer_rail_destinations,
     road_neighbors,
     straight_rail_destinations,
@@ -139,6 +140,22 @@ class BotWeights:
     # engineer into an easy capture -- and engineers are the only answer to a
     # mine, so they are not spare material.
     engineer_expose: float = -6.0
+    # 1 = read the *same* move against them. `engineer_expose` has always priced
+    # our own side of this leak while `OpponentKnowledge` threw the opponent's
+    # away: it learns only from battle outcomes, so a quiet move updated nothing.
+    # A rail turn is a *certain* identification, not a guess -- measured at 1.67
+    # per game, in 89% of games, 267/267 correct.
+    #
+    # It matters more since the flag doors became fully mined: an engineer is the
+    # only rank that clears a mine and survives (a bomb trades itself, everything
+    # else dies), so enemy engineers are the only pieces that can ever breach the
+    # flag through a door. Knowing which piece is one is close to knowing where
+    # the game will be decided.
+    #
+    # A weight rather than a plain `if` for the usual reason: `compare()` varies
+    # weights, not code, and `OpponentKnowledge` is used by the pool opponents
+    # too -- a code-level switch would apply to both sides and cancel. Ships at 0.
+    use_engineer_deduction: float = 0.0
     # Taking the flag is not the only way to win: a side with no legal move
     # loses. Mines and flags never move and a headquarters piece is frozen, so
     # an opponent can be reduced to zero *mobile* pieces while still holding
@@ -359,14 +376,11 @@ def _reveals_engineer(game: Game, move: Move) -> bool:
     """True when only an engineer could have made this move.
 
     Engineers alone turn corners on the railway, so such a move tells the
-    opponent exactly what the piece is.
+    opponent exactly what the piece is. This is our own side of the leak, priced
+    by `engineer_expose`; the deduction against *them* is
+    `use_engineer_deduction`, applied in `OpponentKnowledge.observe`.
     """
-    if move.dst in road_neighbors(move.src):
-        return False
-    occupied = set(game.board)
-    if move.dst in straight_rail_destinations(move.src, occupied):
-        return False
-    return move.dst in engineer_rail_destinations(move.src, occupied)
+    return engineer_only_move(move.src, move.dst, set(game.board))
 
 
 def _expected_battle(attacker: PieceKind, possible: frozenset[PieceKind]) -> float:

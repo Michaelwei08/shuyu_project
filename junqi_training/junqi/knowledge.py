@@ -67,6 +67,13 @@ class OpponentKnowledge:
     #: have been. Feeds :meth:`eliminate_dead_ranks`; costs nothing until that
     #: is called, so tracking it is unconditional and using it is gated.
     dead_enemy: list[frozenset[PieceKind]] = field(default_factory=list)
+    #: Read an enemy railway corner as an engineer. Only engineers turn corners,
+    #: so this is a certainty rather than a prior -- and it is the only rank
+    #: information a *quiet* move carries, which is why this deduction is the one
+    #: thing `observe` used to discard. Gated by `use_engineer_deduction`,
+    #: because the pool opponents run this class too and a plain `if` would apply
+    #: to both sides of a paired comparison and cancel.
+    deduce_engineers: bool = False
 
     def observe(self, event: ObservedMove) -> None:
         opponent = self.owner.other
@@ -78,6 +85,12 @@ class OpponentKnowledge:
         if event.attacker_owner == opponent:
             candidates = self.possible.pop(source, MOVABLE_KINDS)
             candidates = candidates & MOVABLE_KINDS
+            if self.deduce_engineers and event.engineer_only:
+                # Certain, so it overrides rather than narrows. An empty
+                # intersection would mean an earlier deduction was wrong, and the
+                # topology is the thing we are surest of.
+                narrowed = candidates & frozenset({PieceKind.ENGINEER})
+                candidates = narrowed or frozenset({PieceKind.ENGINEER})
             if not event.had_battle:
                 self.possible[target] = candidates
                 return

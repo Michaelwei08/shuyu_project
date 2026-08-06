@@ -111,6 +111,15 @@ def main() -> None:
     #    it look bad reported the mean column, which is not trustworthy.
     variants["guard-off"] = replace(shipped, eval_hq_guard=5.5)
     variants["guard-22"] = replace(shipped, eval_hq_guard=22.0)
+    # Belief from *behaviour* rather than only from battles. `OpponentKnowledge`
+    # learned nothing from a quiet move; a railway corner identifies the piece as
+    # an engineer with certainty, measured at 1.67 per game in 89% of games and
+    # 267/267 correct. It matters more since the flag doors became fully mined:
+    # an engineer is the only rank that clears a mine and survives.
+    #
+    # This is the first candidate aimed at the axis where the headroom actually
+    # is -- perfect information is worth +18 points and none of it has been taken.
+    variants["engineer-deduction"] = replace(shipped, use_engineer_deduction=1.0)
     # 2. Being one square from their flag should pay more than being six. The
     #    defensive side already has that lump (`eval_hq_breach` 26.0); the
     #    offensive side had nothing, so closing 2->1 paid what 6->5 pays.
