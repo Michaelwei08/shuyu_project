@@ -119,7 +119,10 @@ def main() -> None:
     #
     # This is the first candidate aimed at the axis where the headroom actually
     # is -- perfect information is worth +18 points and none of it has been taken.
-    variants["engineer-deduction"] = replace(shipped, use_engineer_deduction=1.0)
+    # **Adopted 2026-08-05**, and the largest weight-side result here:
+    # +0.0197 +/- 0.0052 and +0.0190 +/- 0.0048 (clustered) on independent
+    # openings, 0.0007 apart, combining to +0.0193 +/- 0.0035, p = 2e-08.
+    variants["deduction-off"] = replace(shipped, use_engineer_deduction=0.0)
     # 2. Being one square from their flag should pay more than being six. The
     #    defensive side already has that lump (`eval_hq_breach` 26.0); the
     #    offensive side had nothing, so closing 2->1 paid what 6->5 pays.
